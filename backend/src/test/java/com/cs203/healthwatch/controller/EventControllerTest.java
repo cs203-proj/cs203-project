@@ -15,6 +15,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.cs203.healthwatch.dto.EventResponse;
 import com.cs203.healthwatch.model.EventStatus;
+import com.cs203.healthwatch.repository.UserRepository;
+import com.cs203.healthwatch.security.JwtService;
 import com.cs203.healthwatch.service.EventReader;
 import com.cs203.healthwatch.service.EventService;
 import java.time.Instant;
@@ -37,6 +39,8 @@ class EventControllerTest {
 
     @Autowired MockMvc mockMvc;
     @MockBean EventReader eventReader;
+    @MockBean JwtService jwtService;
+    @MockBean UserRepository userRepository;
 
     private static EventResponse event(double deviation, EventStatus status) {
         return new EventResponse(UUID.randomUUID(), Instant.parse("2026-09-24T03:00:00Z"),
