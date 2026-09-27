@@ -4,6 +4,8 @@ import com.cs203.healthwatch.ingestion.config.IngestionHttpProperties;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -17,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 
 /**
  * Unit tests for FetchClient's retry/backoff behaviour.
@@ -134,6 +137,18 @@ class FetchClientTest {
     }
 
     @Test
+    void retriesOnServerErrorThenSucceeds() {
+        setUp(fastRetryProps(3));
+        server.expect(requestTo(URL)).andRespond(withServerError());
+        server.expect(requestTo(URL)).andRespond(withSuccess("recovered", MediaType.TEXT_PLAIN));
+
+        String result = fetchClient.fetch(URL);
+
+        assertThat(result).isEqualTo("recovered");
+        server.verify();
+    }
+
+    @Test
     void givesUpAfterMaxAttemptsOnPersistentConnectionFailure() {
         setUp(fastRetryProps(3));
         for (int i = 0; i < 3; i++) {
@@ -145,6 +160,53 @@ class FetchClientTest {
         String result = fetchClient.fetch(URL);
 
         assertThat(result).isNull();
+        server.verify();
+    }
+
+    @Test
+    void givesUpAfterMaxAttemptsOnPersistentServerError() {
+        setUp(fastRetryProps(3));
+        for (int i = 0; i < 3; i++) {
+            server.expect(requestTo(URL)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+        }
+
+        String result = fetchClient.fetch(URL);
+
+        assertThat(result).isNull();
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HttpStatus.class, names = {"BAD_REQUEST", "UNAUTHORIZED", "FORBIDDEN"})
+    void otherNonRetryableClientErrorsStopAfterOneAttempt(HttpStatus status) {
+        setUp(fastRetryProps(3));
+        server.expect(requestTo(URL)).andRespond(withStatus(status));
+
+        String result = fetchClient.fetch(URL);
+
+        assertThat(result).isNull();
+        server.verify();
+    }
+
+    // ---------------------------------------------------------------
+    // Backoff grows exponentially between attempts
+    // ---------------------------------------------------------------
+
+    @Test
+    void backoffDoublesBetweenAttempts() {
+        // initial 50ms, 3 attempts -> waits of 50ms then 100ms, none after the last
+        setUp(new IngestionHttpProperties(
+                Duration.ofSeconds(5), Duration.ofSeconds(10), 3, Duration.ofMillis(50)));
+        for (int i = 0; i < 3; i++) {
+            server.expect(requestTo(URL)).andRespond(withServerError());
+        }
+
+        long start = System.nanoTime();
+        fetchClient.fetch(URL);
+        long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
+
+        // lower bound only (sleep never returns early); linear backoff would give 100ms
+        assertThat(elapsedMs).isGreaterThanOrEqualTo(150);
         server.verify();
     }
 

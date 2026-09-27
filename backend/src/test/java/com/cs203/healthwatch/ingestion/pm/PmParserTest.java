@@ -109,13 +109,10 @@ class PmParserTest {
     }
 
     @Test
-    void missingRegionKeyIsMalformedButKeepsAlreadyParsedTimestamp() {
+    void missingRegionKeyIsMalformed() {
         // Payload has readings for other regions but not the one we're ingesting.
-        // NOTE: this is a real subtlety in the current PmParser — the timestamp is
-        // set BEFORE the region lookup, so a malformed row here still carries a
-        // populated observedAt. Worth confirming this is the intended behaviour
-        // for downstream consumers (e.g. baseline computation should already be
-        // excluding malformed rows regardless, per S1-5, but flagging it here).
+        // PmParser validates the value before populating any fields, so a malformed
+        // row carries only sourceId, region and rawPayload (observedAt stays null).
         JsonNode item = json("""
             {
               "timestamp": "2024-01-01T08:00:00+08:00",
@@ -127,7 +124,21 @@ class PmParserTest {
 
         assertThat(r.isMalformed()).isTrue();
         assertThat(r.getValue()).isNull();
-        assertThat(r.getObservedAt()).isEqualTo(OffsetDateTime.parse("2024-01-01T08:00:00+08:00"));
+        assertThat(r.getObservedAt()).isNull();
+        assertThat(r.getRawPayload()).isEqualTo(item.toString());
+    }
+
+    @Test
+    void numericStringValueIsMalformed() {
+        // "42.5" as a string is rejected: only JSON numbers are accepted
+        JsonNode item = json("""
+            {
+              "timestamp": "2024-01-01T08:00:00+08:00",
+              "readings": { "pm25_one_hourly": { "central": "42.5" } }
+            }
+            """);
+
+        assertThat(parser.parse(item, REGION, SOURCE_ID).isMalformed()).isTrue();
     }
 
     // ---------------------------------------------------------------
@@ -263,27 +274,56 @@ class PmParserTest {
     }
 
     @Test
-    void parseAllReturnsEmptyListWhenItemsPathIsAbsentEntirely() {
-        // "data" exists but has no "items" key at all — should not throw
+    void parseAllReturnsSingleMalformedReadingWhenItemsKeyIsAbsent() {
+        // "data" exists but has no "items" array: response shape changed (S1-4.5)
         JsonNode root = json("""
             { "code": 0, "data": {} }
             """);
 
         List<Reading> readings = parser.parseAll(root, REGION, SOURCE_ID);
 
-        assertThat(readings).isEmpty();
+        assertThat(readings).hasSize(1);
+        assertThat(readings.get(0).isMalformed()).isTrue();
+        assertThat(readings.get(0).getRawPayload()).isEqualTo(root.toString());
     }
 
     @Test
-    void parseAllReturnsEmptyListWhenDataPathIsAbsentEntirely() {
-        // whole "data" key missing — iterating a doubly-missing path must not throw
+    void parseAllReturnsSingleMalformedReadingWhenDataKeyIsAbsent() {
         JsonNode root = json("""
             { "code": 0 }
             """);
 
         List<Reading> readings = parser.parseAll(root, REGION, SOURCE_ID);
 
-        assertThat(readings).isEmpty();
+        assertThat(readings).hasSize(1);
+        assertThat(readings.get(0).isMalformed()).isTrue();
+        assertThat(readings.get(0).getRawPayload()).isEqualTo(root.toString());
+    }
+
+    @Test
+    void parseAllReturnsSingleMalformedReadingWhenItemsIsNotAnArray() {
+        JsonNode root = json("""
+            { "code": 0, "data": { "items": "oops" } }
+            """);
+
+        List<Reading> readings = parser.parseAll(root, REGION, SOURCE_ID);
+
+        assertThat(readings).hasSize(1);
+        assertThat(readings.get(0).isMalformed()).isTrue();
+    }
+
+    @Test
+    void parseAllReturnsSingleMalformedReadingWhenCodeIsMissing() {
+        // missing "code" is treated as a failed response, not as success
+        JsonNode root = json("""
+            { "data": { "items": [] } }
+            """);
+
+        List<Reading> readings = parser.parseAll(root, REGION, SOURCE_ID);
+
+        assertThat(readings).hasSize(1);
+        assertThat(readings.get(0).isMalformed()).isTrue();
+        assertThat(readings.get(0).getRawPayload()).isEqualTo(root.toString());
     }
 
     @Test
