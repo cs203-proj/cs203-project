@@ -52,23 +52,19 @@ public class PmIngestionServiceImpl implements IngestionService {
         UUID sourceId = dataSourceRegistry.resolve(sourceProperties.name(), sourceProperties.type());
         List<Reading> readings = parser.parseAll(root, sourceProperties.region(), sourceId);
 
+        if (readings.isEmpty()) {
+            log.info("response contained no items for region {}", sourceProperties.region());
+            return;
+        }
+
         for (Reading r : readings) {
             r.setIngestedAt(OffsetDateTime.now());
             try {
                 repo.save(r);
             } catch (DataIntegrityViolationException e) {
-                if (r.isMalformed()) {
-                    log.warn("malformed reading lost to timestamp collision: {} {}", r.getRegion(), r.getObservedAt());
-                } else {
-                    log.info("duplicate reading skipped: {} {}", r.getRegion(), r.getObservedAt());
-                }
-                // currently infer the failure reason from the reading's own malformed flag 
-                // rather than inspecting the DB exception, because only have one unique 
-                // constraint currently. 
-
-                // this doesn't generalise but if add more constraints later
-                // either inspect the constraint name in the exception or 
-                // simplify the log message to not guess a cause
+                // Only unique constraint right now is (source_id, region, observed_at), so any
+                // violation here means this exact reading was already stored.
+                log.info("duplicate reading skipped: {} {}", r.getRegion(), r.getObservedAt());
 
             } catch (RuntimeException e) {
                 log.error("failed to save reading {} {}: {}", r.getRegion(), r.getObservedAt(), e.getMessage(), e);
