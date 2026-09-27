@@ -53,3 +53,22 @@ That's it — there's no separate install step. The steps below (start DB, run b
 - `backend/` — Spring Boot 3.3 (Java 21) API: web, JPA, Postgres, Flyway, Spring Security, JWT (jjwt), OpenAPI/Swagger.
 - `frontend/` — not yet started.
 - `docker-compose.yml` — local Postgres for dev.
+
+## Deployment
+
+Live backend: https://cs203-project.onrender.com
+
+- Health check: https://cs203-project.onrender.com/actuator/health
+- API docs: https://cs203-project.onrender.com/swagger-ui.html
+
+Hosted on Render, deployed automatically from `main` using `backend/Dockerfile`.
+The database is Supabase Postgres (Session pooler connection).
+
+Note: the Render free plan sleeps after ~15 minutes of inactivity, so the first
+request after idling can take up to a minute.
+
+### Environment variables
+
+Set in Render under Environment; see `.env.example` for the full list.
+`DB_URL`, `DB_USERNAME`, `DB_PASSWORD` come from Supabase (Connect → Session
+pooler); `JWT_SECRET` is a long random string.
