@@ -56,7 +56,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             Optional<User> userOpt = userRepository.findByUsername(username);
             if (userOpt.isPresent()) {
                 var authToken = new UsernamePasswordAuthenticationToken(
-                        username,
+                        new AuthenticatedUser(userOpt.get().getId(), username),
                         null,
                         List.of(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
                 );
