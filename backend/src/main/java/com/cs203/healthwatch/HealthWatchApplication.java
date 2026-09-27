@@ -8,7 +8,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 @ConfigurationPropertiesScan
 @SpringBootApplication
-@ConfigurationPropertiesScan
 public class HealthWatchApplication {
 
     public static void main(String[] args) {
