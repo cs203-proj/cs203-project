@@ -37,7 +37,7 @@ public class FetchClient {
                 log.error("fetch failed with client error {}: {}", e.getStatusCode(), e.getMessage());
                 return null; // genuinely non-retryable (400/401/404 etc.)
             } catch (RestClientException e) {
-                log.error("fetch attempt {} failed: {}", attempt, e.getMessage());
+                log.warn("fetch attempt {} failed: {}", attempt, e.getMessage());
                 if (!backoff(attempt, maxAttempts)) return null;
             }
         }
