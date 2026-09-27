@@ -2,6 +2,7 @@ package com.cs203.healthwatch.detection;
 
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
+import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import com.cs203.healthwatch.events.EventStatus;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -9,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -20,16 +22,16 @@ public class DetectionOrchestrator {
             List.of(EventStatus.NEW, EventStatus.UNDER_REVIEW);
 
     private final EventRepository eventRepository;
+    private final ReadingRepository readingRepository;
     private final DetectionProperties config;
-    // inject once CG-9 merges:
-    // private final ReadingRepository readingRepository;
     // baseline comes from the Python service over HTTP (see loadBaseline TODO), not a JPA repo
 
     /**
      * Runs detection for one region and signal.
      *
-     * @param replay true when called from the replay endpoint; stored on the event so
-     *               replays are never mistaken for live detections
+     * @param replay true when called from the replay endpoint: only synthetic (replay)
+     *               readings are used, and the flag is stored on the event so replays
+     *               are never mistaken for live detections
      * @return the event created, or empty if none was created
      */
     public Optional<DetectedEvent> runDetection(String region, String signalType, boolean replay) {
@@ -46,7 +48,7 @@ public class DetectionOrchestrator {
 
         // query returns newest first; the detector expects oldest -> newest
         List<ReadingSnapshot> recent = new ArrayList<>(
-                loadRecentReadings(region, signalType, config.consecutiveReadings()));
+                loadRecentReadings(region, signalType, config.consecutiveReadings(), replay));
         Collections.reverse(recent);
 
         Optional<Deviation> deviation = DeviationDetector.detect(
@@ -87,21 +89,27 @@ public class DetectionOrchestrator {
         //   - Call GET /baselines over HTTP (not a JPA repo)
         //   - Send X-Admin-Token header, read the value from an env var
         //   - z = (value - median) / mad  (mad is already scaled by 1.4826, don't rescale)
+        //   - Service must exclude is_synthetic readings, so replays don't shift the baseline
         // Blocked on:
-        //   - branch cg-62-baseline-oracle being merged
+        //   - branch cg-62-baseline-oracle being merged (not on main yet)
         //   - schema decision: public vs baseline_dev (CG-2)
-        throw new UnsupportedOperationException("wire this to S1-5/CG-62's baseline HTTP API — see TODO above");
+        // Until then there is no baseline, so detection is skipped with a log message.
+        return Optional.empty();
     }
 
-    private List<ReadingSnapshot> loadRecentReadings(String region, String signalType, int limit) {
-        // TODO: fetch recent readings via CG-9's ReadingRepository
-        //   - Add a query for the latest N non-malformed readings in a region, newest first
-        //   - Filter by signal type: Reading has no signalType, so likely
-        //     go via sourceId -> DataSource (confirm with CG-9)
-        // Blocked on:
-        //   - branch CG-9-source_ingestion being merged
-        // To raise with CG-9:
-        //   - ReadingRepository uses UUID as the ID type but Reading.id is Long
-        throw new UnsupportedOperationException("wire this to CG-9's ReadingRepository — see TODO above");
+    /**
+     * Latest valid readings, newest first. Live detection uses real readings only;
+     * replay uses synthetic readings only, so the two never mix.
+     */
+    private List<ReadingSnapshot> loadRecentReadings(String region, String signalType, int limit, boolean synthetic) {
+        return readingRepository
+                .findLatestValid(region, signalType, synthetic, PageRequest.of(0, limit))
+                .stream()
+                .map(r -> new ReadingSnapshot(
+                        r.getRegion(),
+                        signalType,
+                        r.getValue() == null ? Double.NaN : r.getValue(), // detector rejects NaN
+                        r.getObservedAt().toInstant()))
+                .toList();
     }
 }
