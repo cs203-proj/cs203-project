@@ -1,6 +1,7 @@
 package com.cs203.healthwatch.dto;
 
-import com.cs203.healthwatch.model.EventStatus;
+import com.cs203.healthwatch.events.DetectedEvent;
+import com.cs203.healthwatch.events.EventStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.UUID;
@@ -14,4 +15,8 @@ public record EventResponse(
         @Schema(example = "NEW") EventStatus status,
         @Schema(description = "How far the reading deviated from its baseline", example = "4.2") Double deviationSize
 ) {
+    public static EventResponse from(DetectedEvent event) {
+        return new EventResponse(event.getId(), event.getDetectedAt(), event.getSignalType(), event.getRegion(),
+                event.getStatus(), event.getDeviation());
+    }
 }

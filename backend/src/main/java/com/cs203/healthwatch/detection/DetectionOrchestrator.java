@@ -3,7 +3,7 @@ package com.cs203.healthwatch.detection;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
-import com.cs203.healthwatch.model.EventStatus;
+import com.cs203.healthwatch.events.EventStatus;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;

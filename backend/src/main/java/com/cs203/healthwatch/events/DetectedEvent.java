@@ -1,7 +1,6 @@
 package com.cs203.healthwatch.events;
 
 import com.cs203.healthwatch.common.BaseEntity;
-import com.cs203.healthwatch.model.EventStatus;
 import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.Getter;
