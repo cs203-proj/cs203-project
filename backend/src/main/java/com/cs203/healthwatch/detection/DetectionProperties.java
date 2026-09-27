@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.detection")
 public record DetectionProperties(
         String region,
+        String signalType,
         double zThreshold,
         int consecutiveReadings,
         Duration maxGap

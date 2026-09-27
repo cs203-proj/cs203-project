@@ -1,5 +1,6 @@
 package com.cs203.healthwatch.events;
 
+import com.cs203.healthwatch.model.EventStatus;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
