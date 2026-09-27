@@ -34,11 +34,18 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   detection:
-    region: ${PM_SOURCE_REGION:central} # same as pm.source.region, so detection reads what ingestion stores
-    signal-type: ${PM_SOURCE_TYPE:air_quality} # matches the ingested feed's data_sources.type
-    z-threshold: 3.0
-    consecutive-readings: 3
-    max-gap: 90m # ~1.5x the hourly PM2.5 feed interval
+      detection:
+      region: ${PM_SOURCE_REGION:central} # same as pm.source.region, so detection reads what ingestion stores
+      signal-type: pm25 # what is measured: used to find the baseline and to label events
+      source-type: ${PM_SOURCE_TYPE:air_quality} # data_sources.type of the ingested feed, used to find live readings
+      z-threshold: 3.0
+      consecutive-readings: 3
+      max-gap: 90m # ~1.5x the hourly PM2.5 feed interval
+      replay: # POST /demo/replay: the Sept 2026 haze episode in baseline_dev.readings
+        region: central
+        signal-type: pm25
+        from: "2026-09-03T00:00:00Z"
+        to: "2026-09-05T00:00:00Z" # exclusive
   seed:
     admin-username: ${ADMIN_SEED_USERNAME:#{null}}
     admin-password: ${ADMIN_SEED_PASSWORD:#{null}}

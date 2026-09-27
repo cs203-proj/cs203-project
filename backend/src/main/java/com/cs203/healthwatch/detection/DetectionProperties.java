@@ -7,7 +7,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record DetectionProperties(
         String region,
         String signalType,
+        String sourceType,
         double zThreshold,
         int consecutiveReadings,
-        Duration maxGap
-) {}
+        Duration maxGap,
+        Replay replay
+) {
+    /** The historical window POST /demo/replay pushes through detection, read from baseline_dev.readings. */
+    public record Replay(String region, String signalType, String from, String to) {}
+}
