@@ -5,7 +5,7 @@ COPY mvnw pom.xml ./
 COPY .mvn .mvn
 RUN chmod +x mvnw && ./mvnw -B dependency:go-offline
 COPY src src
-RUN ./mvnw -B package -DskipTests
+RUN ./mvnw -B package spring-boot:repackage -DskipTests
 
 # Stage 2: run the built app with a smaller Java runtime
 FROM eclipse-temurin:21-jre
