@@ -1,3 +1,4 @@
+
 package com.cs203.healthwatch.ingestion.config;
 
 import java.net.http.HttpClient;
