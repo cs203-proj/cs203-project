@@ -33,6 +33,11 @@ app:
     refresh-token-ttl-days: ${JWT_REFRESH_TTL_DAYS:7}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  detection:
+    region: central # the one Sprint 1 region; must match what ingestion stores
+    z-threshold: 3.0
+    consecutive-readings: 3
+    max-gap: 90m # ~1.5x the feed's update interval; adjust once the S1-4 spike confirms it
   seed:
     admin-username: ${ADMIN_SEED_USERNAME:#{null}}
     admin-password: ${ADMIN_SEED_PASSWORD:#{null}}
