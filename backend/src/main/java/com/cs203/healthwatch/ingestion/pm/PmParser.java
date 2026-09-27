@@ -20,17 +20,16 @@ public class PmParser {
 
         int code = root.path("code").asInt(-1);
         if (code != 0) {
-            Reading r = new Reading();
-            r.setSourceId(sourceId);
-            r.setRegion(region);
-            r.setRawPayload(root.toString());
-            r.setMalformed(true);
-
-            out.add(r);
+            out.add(malformed(root, region, sourceId));
             return out;
         }
 
         JsonNode items = root.path("data").path("items");
+
+        if (!items.isArray()) {
+            return List.of(malformed(root, region, sourceId)); // response shape changed
+        }
+
         for (JsonNode item : items) {
             out.add(parse(item, region, sourceId));
         }
@@ -39,31 +38,38 @@ public class PmParser {
 
     public Reading parse(JsonNode item, String region, UUID sourceId) {
         Reading r = new Reading();
-        r.setSourceId(sourceId);
-        r.setRegion(region);
-        r.setRawPayload(item.toString());
+
         try {
             JsonNode ts = item.path("timestamp");
             if (ts.isMissingNode() || ts.isNull()) { 
-                r.setMalformed(true);
-                return r; 
+                return malformed(item, region, sourceId); 
             }
-
-            r.setObservedAt(OffsetDateTime.parse(ts.asText()));
 
             JsonNode v = item.path("readings").path("pm25_one_hourly").path(region);
             if (!v.isNumber() || v.asDouble() < 0 || v.asDouble() > 1000) { 
-                r.setMalformed(true); 
-                return r; 
+                return malformed(item, region, sourceId);
             }
 
+            r.setSourceId(sourceId);
+            r.setRegion(region);
+            r.setRawPayload(item.toString());
+            r.setObservedAt(OffsetDateTime.parse(ts.asText()));
             r.setValue(v.asDouble());
             r.setMalformed(false);
 
         } catch (DateTimeParseException e) {
-            r.setMalformed(true);
+            return malformed(item, region, sourceId);
         }
 
+        return r;
+    }
+
+    private Reading malformed(JsonNode raw, String region, UUID sourceId) {
+        Reading r = new Reading();
+        r.setSourceId(sourceId);
+        r.setRegion(region);
+        r.setRawPayload(raw.toString());
+        r.setMalformed(true);
         return r;
     }
 }
