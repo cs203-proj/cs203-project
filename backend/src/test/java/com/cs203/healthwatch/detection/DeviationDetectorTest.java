@@ -29,6 +29,10 @@ class DeviationDetectorTest {
         return DeviationDetector.detect(baseline, readings, Z, N, MAX_GAP);
     }
 
+    private Optional<Deviation> firstDetection(List<ReadingSnapshot> readings) {
+        return DeviationDetector.firstDetection(baseline, readings, Z, N, MAX_GAP);
+    }
+
     @Test
     void belowThreshold_noEvent() {
         assertThat(detect(List.of(at(0, 55), at(1, 58), at(2, 60)))).isEmpty();
@@ -100,5 +104,37 @@ class DeviationDetectorTest {
         var readings = List.of(at(0, 120));
         assertThatThrownBy(() -> DeviationDetector.detect(baseline, readings, Z, 0, MAX_GAP))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ------------------------------------------------------------------ firstDetection (replay)
+
+    @Test
+    void replay_firesAtTheThirdBreachingReading_notEarlier() {
+        var result = firstDetection(List.of(
+                at(0, 50), at(1, 55),              // normal
+                at(2, 120), at(3, 125), at(4, 130), // sustained spike: fires at hour 4
+                at(5, 140), at(6, 135)));           // spike continues, but the first hit wins
+
+        assertThat(result).isPresent();
+        assertThat(result.get().timestamp()).isEqualTo(START.plus(Duration.ofHours(4)));
+        assertThat(result.get().deviationSize()).isEqualTo(8.0); // max z over hours 2-4: (130 - 50) / 10
+    }
+
+    @Test
+    void replay_isolatedSpikes_neverFire() {
+        assertThat(firstDetection(List.of(
+                at(0, 50), at(1, 120), at(2, 55), at(3, 125), at(4, 60), at(5, 130)))).isEmpty();
+    }
+
+    @Test
+    void replay_emptyOrShortWindow_noEvent() {
+        assertThat(firstDetection(List.of())).isEmpty();
+        assertThat(firstDetection(List.of(at(0, 120), at(1, 125)))).isEmpty();
+    }
+
+    @Test
+    void replay_withoutBaseline_noEvent() {
+        var readings = List.of(at(0, 120), at(1, 125), at(2, 130));
+        assertThat(DeviationDetector.firstDetection(Optional.empty(), readings, Z, N, MAX_GAP)).isEmpty();
     }
 }

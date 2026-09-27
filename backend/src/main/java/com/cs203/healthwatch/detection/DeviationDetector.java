@@ -77,4 +77,30 @@ public final class DeviationDetector {
                 maxZ
         ));
     }
+
+    /**
+     * Replays a historical series as if it arrived one reading at a time, and returns the first point where
+     * {@link #detect} would have fired. Same rules as live detection, so a replay can never flag something that
+     * live detection would not.
+     *
+     * @param readings the whole window, ordered oldest to newest
+     */
+    public static Optional<Deviation> firstDetection(
+            Optional<BaselineSnapshot> baseline,
+            List<ReadingSnapshot> readings,
+            double zThreshold,
+            int consecutiveRequired,
+            Duration maxGap
+    ) {
+        if (consecutiveRequired < 1) {
+            throw new IllegalArgumentException("consecutiveRequired must be at least 1");
+        }
+        for (int end = consecutiveRequired; end <= readings.size(); end++) {
+            Optional<Deviation> d = detect(baseline, readings.subList(0, end), zThreshold, consecutiveRequired, maxGap);
+            if (d.isPresent()) {
+                return d;
+            }
+        }
+        return Optional.empty();
+    }
 }

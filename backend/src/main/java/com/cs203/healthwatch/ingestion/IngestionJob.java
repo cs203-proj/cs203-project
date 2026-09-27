@@ -1,7 +1,6 @@
 package com.cs203.healthwatch.ingestion;
 
 import com.cs203.healthwatch.detection.DetectionOrchestrator;
-import com.cs203.healthwatch.detection.DetectionProperties;
 
 import org.springframework.stereotype.Component;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -27,7 +26,6 @@ public class IngestionJob {
 
     private final List<IngestionService> services;
     private final DetectionOrchestrator detectionOrchestrator;
-    private final DetectionProperties detectionProperties;
 
     @Scheduled(fixedDelayString = "${ingestion.scheduling.fixed-delay-ms}")
     public void run() {
@@ -43,8 +41,7 @@ public class IngestionJob {
         // S1-6: run detection after each pull. Safe to run even if the pull failed:
         // with no new readings it either finds nothing or skips via the open-event dedupe.
         try {
-            detectionOrchestrator.runDetection(
-                    detectionProperties.region(), detectionProperties.signalType(), false);
+            detectionOrchestrator.runLiveDetection();
         } catch (Exception e) {
             log.error("detection failed: {}", e.getMessage(), e);
         }
