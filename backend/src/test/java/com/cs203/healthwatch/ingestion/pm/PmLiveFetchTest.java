@@ -8,7 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.cs203.healthwatch.ingestion.FetchClient;
 import com.cs203.healthwatch.ingestion.config.IngestionHttpProperties;
-import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Source;
+import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
@@ -47,7 +47,7 @@ class PmLiveFetchTest {
         when(registry.resolve("datagovsg_pm25", "air_quality")).thenReturn(SOURCE_ID);
 
         PmSourceProperties props = new PmSourceProperties("datagovsg_pm25", URL, "air_quality",
-                REGIONS.stream().map(Source::new).toList());
+                REGIONS.stream().map(Region::new).toList());
         PmIngestionServiceImpl service = new PmIngestionServiceImpl(
                 fetchClient, new PmParser(), repo, new ObjectMapper(), props, registry);
 

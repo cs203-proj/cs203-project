@@ -10,8 +10,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 
 /**
- * The data.gov.sg PM2.5 feed and the regions ingested from it (CG-136). One response carries every region, so the
- * URL is fetched once per cycle and parsed once per source. Startup fails if a field is missing or the list is empty.
+ * The data.gov.sg PM2.5 feed and the regions ingested from it (CG-136). One feed is one source and one source_id, and regions are entries within it. 
+ * Startup fails if a field is missing or the list is empty.
  *
  * @param name   data_sources.name; each source gets its own row, so readings carry a distinct source_id
  * @param url     endpoint to fetch
@@ -24,13 +24,12 @@ public record PmSourceProperties(
     @NotBlank String name, 
     @NotBlank String url, 
     @NotBlank String type, 
-    @NotEmpty List<@Valid Source> sources) {
+    @NotEmpty List<@Valid Region> regions) {
 
     /**
-     * One feed to ingest. Several sources can share a URL: the data.gov.sg PM2.5 response carries every region,
-     * so central and west are two sources on one URL that are fetched once per cycle.
+     * One region to ingest from this feed, e.g. central; stored in readings.region.
      *
      * @param region e.g. central; stored in readings.region
      */
-    public record Source(@NotBlank String region) {}
+    public record Region(@NotBlank String name) {}
 }

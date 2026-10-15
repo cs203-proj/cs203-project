@@ -5,6 +5,7 @@ import com.cs203.healthwatch.ingestion.FetchClient;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
+import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -57,22 +58,22 @@ public class PmIngestionServiceImpl implements IngestionService {
             return;
         }
 
-        for (Source s : sourceProperties.sources()) {
+        for (Region r : sourceProperties.regions()) {
             try {
-                ingestSource(root, sourceId, s);
+                ingestRegion(root, sourceId, r);
             } catch (RuntimeException e) {
                 log.error("ingestion failed for source {} region {}: {}",
-                                sourceProperties.name(), s.region(), e.getMessage(), e);
+                                sourceProperties.name(), r.name(), e.getMessage(), e);
             }
         }
         
     }
 
-    private void ingestSource(JsonNode root, UUID sourceId, Source source) {
-        List<Reading> readings = parser.parseAll(root, source.region(), sourceId);
+    private void ingestRegion(JsonNode root, UUID sourceId, Region region) {
+        List<Reading> readings = parser.parseAll(root, region.name(), sourceId);
 
         if (readings.isEmpty()) {
-            log.info("response contained no items for region {}", source.region());
+            log.info("response contained no items for region {}", region.name());
             return;
         }
 

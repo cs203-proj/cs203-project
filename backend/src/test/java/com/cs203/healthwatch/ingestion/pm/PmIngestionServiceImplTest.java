@@ -12,7 +12,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
 
 import com.cs203.healthwatch.ingestion.FetchClient;
-import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Source;
+import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
@@ -41,7 +41,7 @@ class PmIngestionServiceImplTest {
     private static final UUID SOURCE_ID = UUID.fromString("5f1e2d3c-4b5a-4968-8776-655443322110");
 
     /** Two hourly items, each with a value for every region the API reports. */
-    private static final String ALL_REGIONS = """
+    private static final String ALL_REGIONS_RESPONSE = """
             {"code":0,"data":{"items":[
               {"timestamp":"2026-09-27T09:00:00+08:00",
                "readings":{"pm25_one_hourly":{"central":10,"north":20,"south":30,"east":40,"west":50}}},
@@ -55,8 +55,8 @@ class PmIngestionServiceImplTest {
     @Mock private DataSourceRegistry registry;
 
     private PmIngestionServiceImpl service(PmParser parser, String... regions) {
-        List<Source> sources = Arrays.stream(regions).map(Source::new).toList();
-        PmSourceProperties props = new PmSourceProperties(SOURCE_NAME, URL, SOURCE_TYPE, sources);
+        List<Region> regionList = Arrays.stream(regions).map(Region::new).toList();
+        PmSourceProperties props = new PmSourceProperties(SOURCE_NAME, URL, SOURCE_TYPE, regionList);
         return new PmIngestionServiceImpl(fetchClient, parser, repo, new ObjectMapper(), props, registry);
     }
 
@@ -103,7 +103,7 @@ class PmIngestionServiceImplTest {
 
     @Test
     void everyConfiguredRegionIsIngested_fromOneFetch() {
-        feedReturns(ALL_REGIONS);
+        feedReturns(ALL_REGIONS_RESPONSE);
         sourceResolves();
 
         service("central", "west").ingestLatest();
@@ -119,7 +119,7 @@ class PmIngestionServiceImplTest {
 
     @Test
     void allRegionsShareOneSourceId_resolvedOncePerCycle() {
-        feedReturns(ALL_REGIONS);
+        feedReturns(ALL_REGIONS_RESPONSE);
         sourceResolves();
 
         service("central", "north", "south", "east", "west").ingestLatest();
@@ -130,7 +130,7 @@ class PmIngestionServiceImplTest {
 
     @Test
     void savedReadingsCarryIngestedAt() {
-        feedReturns(ALL_REGIONS);
+        feedReturns(ALL_REGIONS_RESPONSE);
         sourceResolves();
 
         service("central").ingestLatest();
@@ -140,7 +140,7 @@ class PmIngestionServiceImplTest {
 
     @Test
     void regionsInTheResponseButNotConfigured_areIgnored() {
-        feedReturns(ALL_REGIONS);
+        feedReturns(ALL_REGIONS_RESPONSE);
         sourceResolves();
 
         service("central").ingestLatest();
@@ -173,7 +173,7 @@ class PmIngestionServiceImplTest {
         PmParser parser = spy(new PmParser());
         lenient().doThrow(new IllegalStateException("unexpected payload"))
                  .when(parser).parseAll(any(), eq("north"), any());
-        feedReturns(ALL_REGIONS);
+        feedReturns(ALL_REGIONS_RESPONSE);
         sourceResolves();
 
         service(parser, "central", "north", "west").ingestLatest();
@@ -231,7 +231,7 @@ class PmIngestionServiceImplTest {
 
     @Test
     void duplicateReading_isSkipped_andTheRestAreStillSaved() {
-        feedReturns(ALL_REGIONS);
+        feedReturns(ALL_REGIONS_RESPONSE);
         sourceResolves();
         when(repo.save(any(Reading.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate key"))
@@ -244,7 +244,7 @@ class PmIngestionServiceImplTest {
 
     @Test
     void unexpectedSaveFailure_doesNotStopTheBatch() {
-        feedReturns(ALL_REGIONS);
+        feedReturns(ALL_REGIONS_RESPONSE);
         sourceResolves();
         when(repo.save(any(Reading.class)))
                 .thenAnswer(inv -> inv.getArgument(0))
