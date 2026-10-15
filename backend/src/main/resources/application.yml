@@ -73,6 +73,8 @@ ingestion:
     read-timeout: ${INGESTION_HTTP_READ_TIMEOUT:PT10S} # Once connected, how long to wait for the server to actually send back data before giving up.
     max-attempts: ${INGESTION_HTTP_MAX_ATTEMPTS:3} # How many times FetchClient will attempt the whole fetch if it fails, before giving up for this cycle.
     initial-backoff: ${INGESTION_HTTP_INITIAL_BACKOFF:PT2S} # How long to wait before retrying after a failed attempt.
+  backfill:
+    delay-between-days: ${INGESTION_BACKFILL_DELAY:PT2S}   # pause between days; data.gov.sg rate-limits rapid requests
 
 pm:
   url: ${PM_SOURCE_URL:https://api-open.data.gov.sg/v2/real-time/api/pm25}

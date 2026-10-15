@@ -26,6 +26,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
+import java.time.Duration;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,7 +61,7 @@ class PmBackfillServiceTest {
                 List.of(new Region("central"), new Region("west")));
         PmIngestionService ingestion =
                 new PmIngestionService(fetchClient, new PmParser(), repo, mapper, props, registry);
-        backfill = new PmBackfillService(fetchClient, mapper, props, ingestion, CLOCK);
+        backfill = new PmBackfillService(fetchClient, mapper, props, ingestion, CLOCK, Duration.ZERO);
     }
 
     /** One page for a day: two hourly items with central and west values, optionally pointing to a next page. */

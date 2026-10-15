@@ -10,6 +10,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.time.Duration;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.beans.factory.annotation.Value;
 
 import lombok.RequiredArgsConstructor;
 
@@ -29,14 +31,10 @@ import lombok.RequiredArgsConstructor;
  * skipped by the (source_id, region, observed_at) unique constraint.
  */
 @Service
-@RequiredArgsConstructor
 public class PmBackfillService {
     private static final Logger log = LoggerFactory.getLogger(PmBackfillService.class);
 
-    /** Longest range per request, so one call stays well inside HTTP timeouts. Larger ranges: call again. */
     public static final int MAX_DAYS = 31;
-
-    /** Guards against a token that never ends; a day of hourly readings fits in one page in practice. */
     static final int MAX_PAGES_PER_DAY = 20;
 
     private final FetchClient fetchClient;
@@ -44,6 +42,19 @@ public class PmBackfillService {
     private final PmSourceProperties sourceProperties;
     private final PmIngestionService ingestion;
     private final Clock clock;
+    /** Pause between days, so rapid requests don't hit data.gov.sg's rate limit. */
+    private final Duration delayBetweenDays;
+
+    public PmBackfillService(FetchClient fetchClient, ObjectMapper objectMapper,
+                             PmSourceProperties sourceProperties, PmIngestionService ingestion, Clock clock,
+                             @Value("${ingestion.backfill.delay-between-days:PT2S}") Duration delayBetweenDays) {
+        this.fetchClient = fetchClient;
+        this.objectMapper = objectMapper;
+        this.sourceProperties = sourceProperties;
+        this.ingestion = ingestion;
+        this.clock = clock;
+        this.delayBetweenDays = delayBetweenDays;
+    }
 
     /** Backfills every day from {@code from} to {@code to}, both inclusive, as SGT dates. */
     public BackfillResponse backfill(LocalDate from, LocalDate to) {
@@ -59,6 +70,9 @@ public class PmBackfillService {
             pages += result.pages();
             if (!result.complete()) {
                 failedDays.add(day);
+            }
+            if (day.isBefore(to)) {
+                pause(delayBetweenDays);   // no point waiting after the last day
             }
         }
 
@@ -110,6 +124,17 @@ public class PmBackfillService {
     private static String nextToken(JsonNode root) {
         JsonNode token = root.path("data").path("paginationToken");
         return token.isTextual() && !token.asText().isBlank() ? token.asText() : null;
+    }
+
+    private static void pause(Duration duration) {
+        if (duration.isZero()) {
+            return;
+        }
+        try {
+            Thread.sleep(duration.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();   // keep the interrupt flag so the caller can see it
+        }
     }
 
     private void validate(LocalDate from, LocalDate to) {
