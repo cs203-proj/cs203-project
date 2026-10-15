@@ -1,11 +1,12 @@
 package com.cs203.healthwatch.ingestion.pm;
 
 import com.cs203.healthwatch.ingestion.IngestionService;
+import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
+import com.cs203.healthwatch.ingestion.IngestResult;
 import com.cs203.healthwatch.ingestion.FetchClient;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
-import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -25,8 +26,8 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-public class PmIngestionServiceImpl implements IngestionService {
-    private static final Logger log = LoggerFactory.getLogger(PmIngestionServiceImpl.class);
+public class PmIngestionService implements IngestionService {
+    private static final Logger log = LoggerFactory.getLogger(PmIngestionService.class);
 
     private final FetchClient fetchClient;
     private final PmParser parser;
@@ -34,6 +35,10 @@ public class PmIngestionServiceImpl implements IngestionService {
     private final ObjectMapper objectMapper;
     private final PmSourceProperties sourceProperties;
     private final DataSourceRegistry dataSourceRegistry;
+
+    private enum SaveOutcome {
+        SAVED, DUPLICATE, FAILED
+    }
 
     @Override
     public void ingestLatest() {
@@ -50,46 +55,76 @@ public class PmIngestionServiceImpl implements IngestionService {
             return;
         }
 
+        ingest(root);
+    }
+
+    IngestResult ingest(JsonNode root) {
         UUID sourceId = dataSourceRegistry.resolve(sourceProperties.name(), sourceProperties.type());
 
         if (!parser.isValidResponse(root)) {
             log.error("response from {} is unusable, storing it as malformed", sourceProperties.name());
-            save(parser.malformed(root, PmParser.ALL_REGIONS, sourceId));
-            return;
+            Reading reading = parser.malformed(root, PmParser.ALL_REGIONS, sourceId);
+            return tally(List.of(reading));
         }
+
+        IngestResult total = IngestResult.EMPTY;
 
         for (Region r : sourceProperties.regions()) {
             try {
-                ingestRegion(root, sourceId, r);
+                total = total.plus(ingestRegion(root, sourceId, r));
             } catch (RuntimeException e) {
                 log.error("ingestion failed for source {} region {}: {}",
-                                sourceProperties.name(), r.name(), e.getMessage(), e);
+                        sourceProperties.name(), r.name(), e.getMessage(), e);
             }
         }
-        
+
+        return total;
+
     }
 
-    private void ingestRegion(JsonNode root, UUID sourceId, Region region) {
+    private IngestResult ingestRegion(JsonNode root, UUID sourceId, Region region) {
         List<Reading> readings = parser.parseAll(root, region.name(), sourceId);
 
         if (readings.isEmpty()) {
             log.info("response contained no items for region {}", region.name());
-            return;
         }
 
-        readings.forEach(this::save);
+        return tally(readings);
     }
 
-    private void save(Reading r) {
+    private IngestResult tally(List<Reading> readings) {
+        int saved = 0;
+        int malformed = 0;
+        int duplicates = 0;
+        int failed = 0;
+        for (Reading r : readings) {
+            switch (save(r)) {
+                case SAVED -> {
+                    saved++;
+                    if (r.isMalformed()) {
+                        malformed++;
+                    }
+                }
+                case DUPLICATE -> duplicates++;
+                case FAILED -> failed++;
+            }
+        }
+        return new IngestResult(saved, malformed, duplicates, failed);
+    }
+
+    private SaveOutcome save(Reading r) {
         r.setIngestedAt(OffsetDateTime.now());
         try {
             repo.save(r);
+            return SaveOutcome.SAVED;
         } catch (DataIntegrityViolationException e) {
             // Only unique constraint right now is (source_id, region, observed_at), so any
             // violation here means this exact reading was already stored.
             log.info("duplicate reading skipped: {} {}", r.getRegion(), r.getObservedAt());
+            return SaveOutcome.DUPLICATE;
         } catch (RuntimeException e) {
             log.error("failed to save reading {} {}: {}", r.getRegion(), r.getObservedAt(), e.getMessage(), e);
+            return SaveOutcome.FAILED;
         }
     }
 }

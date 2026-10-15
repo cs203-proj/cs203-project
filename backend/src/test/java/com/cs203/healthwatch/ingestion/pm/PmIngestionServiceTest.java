@@ -33,7 +33,7 @@ import org.springframework.dao.DataIntegrityViolationException;
  * test needs it to fail.
  */
 @ExtendWith(MockitoExtension.class)
-class PmIngestionServiceImplTest {
+class PmIngestionServiceTest {
 
     private static final String URL = "https://example.test/pm25";
     private static final String SOURCE_NAME = "datagovsg_pm25";
@@ -54,13 +54,13 @@ class PmIngestionServiceImplTest {
     @Mock private ReadingRepository repo;
     @Mock private DataSourceRegistry registry;
 
-    private PmIngestionServiceImpl service(PmParser parser, String... regions) {
+    private PmIngestionService service(PmParser parser, String... regions) {
         List<Region> regionList = Arrays.stream(regions).map(Region::new).toList();
         PmSourceProperties props = new PmSourceProperties(SOURCE_NAME, URL, SOURCE_TYPE, regionList);
-        return new PmIngestionServiceImpl(fetchClient, parser, repo, new ObjectMapper(), props, registry);
+        return new PmIngestionService(fetchClient, parser, repo, new ObjectMapper(), props, registry);
     }
 
-    private PmIngestionServiceImpl service(String... regions) {
+    private PmIngestionService service(String... regions) {
         return service(new PmParser(), regions);
     }
 

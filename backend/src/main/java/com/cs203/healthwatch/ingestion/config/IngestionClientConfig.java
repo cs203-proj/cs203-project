@@ -1,7 +1,8 @@
-
 package com.cs203.healthwatch.ingestion.config;
 
 import java.net.http.HttpClient;
+import java.time.Clock;
+import java.time.ZoneId;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,5 +18,14 @@ public class IngestionClientConfig {
                 HttpClient.newBuilder().connectTimeout(props.connectTimeout()).build());
         factory.setReadTimeout(props.readTimeout());
         return builder.requestFactory(factory).build();
+    }
+
+    /**
+     * Singapore time, which is how data.gov.sg dates its readings. Injected rather than calling now() directly,
+     * so tests can fix "today".
+     */
+    @Bean
+    public Clock clock() {
+        return Clock.system(ZoneId.of("Asia/Singapore"));
     }
 }

@@ -48,7 +48,7 @@ class PmLiveFetchTest {
 
         PmSourceProperties props = new PmSourceProperties("datagovsg_pm25", URL, "air_quality",
                 REGIONS.stream().map(Region::new).toList());
-        PmIngestionServiceImpl service = new PmIngestionServiceImpl(
+        PmIngestionService service = new PmIngestionService(
                 fetchClient, new PmParser(), repo, new ObjectMapper(), props, registry);
 
         service.ingestLatest();
