@@ -76,8 +76,12 @@ ingestion:
     initial-backoff: ${INGESTION_HTTP_INITIAL_BACKOFF:PT2S} # How long to wait before retrying after a failed attempt.
 
 pm:
-  source:
-    url: ${PM_SOURCE_URL:https://api-open.data.gov.sg/v2/real-time/api/pm25}
-    name: ${PM_SOURCE_NAME:datagovsg_pm25}
-    type: ${PM_SOURCE_TYPE:air_quality}
-    region: ${PM_SOURCE_REGION:central}
+  url: ${PM_SOURCE_URL:https://api-open.data.gov.sg/v2/real-time/api/pm25}
+  type: ${PM_SOURCE_TYPE:air_quality}
+  name: ${PM_SOURCE_NAME:datagovsg_pm25}
+  sources:
+     - region: central
+     - region: north
+     - region: south
+     - region: east
+     - region: west

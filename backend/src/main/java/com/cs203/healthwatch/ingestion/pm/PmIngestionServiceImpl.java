@@ -50,25 +50,45 @@ public class PmIngestionServiceImpl implements IngestionService {
         }
 
         UUID sourceId = dataSourceRegistry.resolve(sourceProperties.name(), sourceProperties.type());
-        List<Reading> readings = parser.parseAll(root, sourceProperties.region(), sourceId);
 
-        if (readings.isEmpty()) {
-            log.info("response contained no items for region {}", sourceProperties.region());
+        if (!parser.isValidResponse(root)) {
+            log.error("response from {} is unusable, storing it as malformed", sourceProperties.name());
+            save(parser.malformed(root, PmParser.ALL_REGIONS, sourceId));
             return;
         }
 
-        for (Reading r : readings) {
-            r.setIngestedAt(OffsetDateTime.now());
+        for (Source s : sourceProperties.sources()) {
             try {
-                repo.save(r);
-            } catch (DataIntegrityViolationException e) {
-                // Only unique constraint right now is (source_id, region, observed_at), so any
-                // violation here means this exact reading was already stored.
-                log.info("duplicate reading skipped: {} {}", r.getRegion(), r.getObservedAt());
-
+                ingestSource(root, sourceId, s);
             } catch (RuntimeException e) {
-                log.error("failed to save reading {} {}: {}", r.getRegion(), r.getObservedAt(), e.getMessage(), e);
+                log.error("ingestion failed for source {} region {}: {}",
+                                sourceProperties.name(), s.region(), e.getMessage(), e);
             }
+        }
+        
+    }
+
+    private void ingestSource(JsonNode root, UUID sourceId, Source source) {
+        List<Reading> readings = parser.parseAll(root, source.region(), sourceId);
+
+        if (readings.isEmpty()) {
+            log.info("response contained no items for region {}", source.region());
+            return;
+        }
+
+        readings.forEach(this::save);
+    }
+
+    private void save(Reading r) {
+        r.setIngestedAt(OffsetDateTime.now());
+        try {
+            repo.save(r);
+        } catch (DataIntegrityViolationException e) {
+            // Only unique constraint right now is (source_id, region, observed_at), so any
+            // violation here means this exact reading was already stored.
+            log.info("duplicate reading skipped: {} {}", r.getRegion(), r.getObservedAt());
+        } catch (RuntimeException e) {
+            log.error("failed to save reading {} {}: {}", r.getRegion(), r.getObservedAt(), e.getMessage(), e);
         }
     }
 }
