@@ -1,5 +1,6 @@
 package com.cs203.healthwatch.ingestion.readings;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -26,4 +27,20 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
                                   @Param("sourceType") String sourceType,
                                   @Param("synthetic") boolean synthetic,
                                   Pageable pageable);
+
+
+    @Query("""
+          select r from Reading r
+          where r.region = :region
+          and r.malformed = false
+          and r.value is not null
+          and r.observedAt >= :from and r. observedAt < :to
+          and r.sourceId in (select d.id from DataSource d where d. type = :sourceType)
+          order by r.observedAt asc
+    """)
+
+    List<Reading> findValidBetween(@Param("region") String region,
+            @Param("sourceType") String sourceType,
+            @Param("from") OffsetDateTime from,
+            @Param("to") OffsetDateTime to);
 }
