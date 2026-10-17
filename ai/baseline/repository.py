@@ -52,7 +52,7 @@ class SupabaseBaselineRepo:
             self._db.table("readings")
             .select("observed_at")
             .eq("region", region)
-            .eq("source_id", source_id)   # .eq("signal_type", signal_type)
+            .eq("source_id", source_id)
             .or_("is_malformed.is.null,is_malformed.eq.false")
             .not_.is_("value", "null")
             .order("observed_at", desc=True)
@@ -73,7 +73,7 @@ class SupabaseBaselineRepo:
                 self._db.table("readings")
                 .select("value,observed_at,is_malformed")
                 .eq("region", region)
-                .eq("source_id", source_id) # .eq("signal_type", signal_type)
+                .eq("source_id", source_id)
                 .gte("observed_at", since.isoformat())
                 .order("observed_at")
                 .order("id")  # deterministic paging when timestamps tie
@@ -111,18 +111,6 @@ class SupabaseBaselineRepo:
                 on_conflict="source_id,region,window_start,window_end",   # CHANGED
             ).execute()
 
-    # def upsert_baseline(self, row: dict) -> None:
-    #     """Insert, or update in place on (region, signal_type, window_start, window_end)."""
-    #     self._db.table("baselines").upsert(
-    #         {
-    #             **row,
-    #             "window_start": row["window_start"].isoformat(),
-    #             "window_end": row["window_end"].isoformat(),
-    #             "computed_at": datetime.now(timezone.utc).isoformat(),
-    #         },
-    #         on_conflict="region,signal_type,window_start,window_end",
-    #     ).execute()
-
     def list_baselines(self) -> list[dict]:
         rows = (
             self._db.table("baselines")
@@ -131,20 +119,6 @@ class SupabaseBaselineRepo:
             .execute()
             .data
         )
-        return [
-            {
-                "region": r["region"],
-                "signal_type": SOURCE_SIGNALS.get(r["data_sources"]["name"], r["data_sources"]["name"]),
-                "median": r["baseline_value"],
-                "mad": r["mad"],
-                "window_start": r["window_start"],
-                "window_end": r["window_end"],
-                "computed_at": r["computed_at"],
-            }
-            for r in rows
-        ]
-
-# Translate back so GET /baselines keeps its current response shape.
         return [
             {
                 "region": r["region"],
