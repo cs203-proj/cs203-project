@@ -14,8 +14,8 @@ final class TestExplanations {
     }
 
     static ExplanationProperties props(boolean enabled, String apiKey) {
-        return new ExplanationProperties(enabled, apiKey, "gemini-test-model",
-                "https://generativelanguage.googleapis.com/v1beta", Duration.ofSeconds(5), Duration.ofHours(6),
+        return new ExplanationProperties(enabled, apiKey, "groq-test-model",
+                "https://api.groq.com/openai/v1", Duration.ofSeconds(5), Duration.ofHours(6),
                 Duration.ofMinutes(60), Duration.ofHours(2), 12);
     }
 

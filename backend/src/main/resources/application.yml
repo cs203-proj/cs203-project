@@ -46,11 +46,11 @@ app:
         signal-type: pm25
         from: "2026-09-03T00:00:00Z"
         to: "2026-09-05T00:00:00Z" # exclusive
-  explanation: # CG-135: AI explanation of each new event (Gemini free tier)
+  explanation: # CG-135: AI explanation of each new event (Groq free plan)
     enabled: ${AI_EXPLANATION_ENABLED:true}
-    api-key: ${GEMINI_API_KEY:} # blank: every explanation is stored as FAILED "not configured", events unaffected
-    model: ${GEMINI_MODEL:gemini-3.8-flash}
-    base-url: https://generativelanguage.googleapis.com/v1beta
+    api-key: ${GROQ_API_KEY:} # blank: every explanation is stored as FAILED "not configured", events unaffected
+    model: ${GROQ_MODEL:openai/gpt-oss-120b} # must support strict json_schema output
+    base-url: https://api.groq.com/openai/v1
     timeout: 20s
     lookback: 6h # window for the stale/partial-data check and the readings sent to the AI
     expected-interval: 60m # hourly PM2.5 feed

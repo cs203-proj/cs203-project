@@ -27,7 +27,7 @@ class EventExplanationRepositoryTest {
         e.setStatus(status);
         e.setDataComplete(false);
         e.setDataQualityNote("Based on partial data: 4 of 6 expected readings in the last 6 hours.");
-        e.setModel("gemini-test-model");
+        e.setModel("groq-test-model");
         return e;
     }
 
@@ -59,7 +59,7 @@ class EventExplanationRepositoryTest {
     void failedRow_keepsTheErrorAndNoAiFields() {
         DetectedEvent event = em.persistAndFlush(TestEvents.event(4.0, EventStatus.NEW, "2026-10-18T03:00:00Z"));
         EventExplanation e = row(event, ExplanationStatus.FAILED);
-        e.setError("Gemini call failed: 429 Too Many Requests");
+        e.setError("Groq call failed: 429 Too Many Requests");
         repo.saveAndFlush(e);
         em.clear();
 

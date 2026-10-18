@@ -45,7 +45,7 @@ class EventExplanationServiceTest {
         client = mock(ExplanationClient.class);
         repo = mock(EventExplanationRepository.class);
         events = mock(EventRepository.class);
-        when(client.modelName()).thenReturn("gemini-test-model");
+        when(client.modelName()).thenReturn("groq-test-model");
         when(repo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         event = new DetectedEvent();
@@ -85,7 +85,7 @@ class EventExplanationServiceTest {
         assertThat(saved.getAssumptions()).containsExactly("Station reports correctly");
         assertThat(saved.isDataComplete()).isTrue();
         assertThat(saved.getDataQualityNote()).startsWith("Based on complete data");
-        assertThat(saved.getModel()).isEqualTo("gemini-test-model");
+        assertThat(saved.getModel()).isEqualTo("groq-test-model");
         assertThat(saved.getError()).isNull();
     }
 
@@ -143,12 +143,12 @@ class EventExplanationServiceTest {
 
     @Test
     void aiFailure_storesFailedRow_doesNotThrow_andLeavesEventNew() {
-        when(client.explain(any())).thenThrow(new ExplanationException("Gemini call failed: 429 Too Many Requests"));
+        when(client.explain(any())).thenThrow(new ExplanationException("Groq call failed: 429 Too Many Requests"));
 
         EventExplanation saved = explain(service(true), sixFreshReadings()).orElseThrow();
 
         assertThat(saved.getStatus()).isEqualTo(ExplanationStatus.FAILED);
-        assertThat(saved.getError()).isEqualTo("Gemini call failed: 429 Too Many Requests");
+        assertThat(saved.getError()).isEqualTo("Groq call failed: 429 Too Many Requests");
         assertThat(saved.getAssessment()).isNull();
         assertThat(saved.getExplanation()).isNull();
         assertThat(saved.getDataQualityNote()).isNotBlank();

@@ -5,6 +5,8 @@ import static com.cs203.healthwatch.explanation.TestExplanations.hourly;
 import static com.cs203.healthwatch.explanation.TestExplanations.props;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -14,6 +16,8 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -22,15 +26,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
-/** The Gemini client against a mock HTTP server: no live API calls. */
-class GeminiExplanationClientTest {
+/** The Groq client against a mock HTTP server: no live API calls. */
+class GroqExplanationClientTest {
 
-    private static final String URL =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-test-model:generateContent";
+    private static final String URL = "https://api.groq.com/openai/v1/chat/completions";
 
     private final ObjectMapper mapper = new ObjectMapper();
     private MockRestServiceServer server;
-    private GeminiExplanationClient client;
+    private GroqExplanationClient client;
     private ExplanationContext context;
 
     @BeforeEach
@@ -38,19 +41,18 @@ class GeminiExplanationClientTest {
         ExplanationProperties props = props(true, "test-key");
         RestClient.Builder builder = RestClient.builder().baseUrl(props.baseUrl());
         server = MockRestServiceServer.bindTo(builder).build();
-        client = GeminiExplanationClient.withRestClient(props, builder.build(), mapper);
+        client = GroqExplanationClient.withRestClient(props, builder.build(), mapper);
 
         var readings = hourly(Instant.parse("2026-10-18T03:00:00Z"), 18, 20, 45, 55, 70);
         context = context(false, new DataQuality(false, "Based on partial data: 5 of 6 expected readings.", 5, 6),
                 readings);
     }
 
-    /** Wraps an answer the way generateContent does. */
-    private String geminiResponse(String answerJson) throws Exception {
-        var part = java.util.Map.of("text", answerJson);
-        var content = java.util.Map.of("role", "model", "parts", java.util.List.of(part));
-        var candidate = java.util.Map.of("content", content, "finishReason", "STOP");
-        return mapper.writeValueAsString(java.util.Map.of("candidates", java.util.List.of(candidate)));
+    /** Wraps an answer the way chat completions does. */
+    private String groqResponse(String answerJson) throws Exception {
+        var message = Map.of("role", "assistant", "content", answerJson);
+        var choice = Map.of("index", 0, "message", message, "finish_reason", "stop");
+        return mapper.writeValueAsString(Map.of("choices", List.of(choice)));
     }
 
     private static final String GOOD_ANSWER = """
@@ -62,15 +64,19 @@ class GeminiExplanationClientTest {
             """;
 
     @Test
-    void sendsKeyInHeaderAndFactsAndSchema_andParsesTheAnswer() throws Exception {
+    void sendsBearerKeyStrictSchemaAndFacts_andParsesTheAnswer() throws Exception {
         server.expect(requestTo(URL))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(header("x-goog-api-key", "test-key"))
-                .andExpect(jsonPath("$.generationConfig.responseMimeType").value("application/json"))
-                .andExpect(jsonPath("$.generationConfig.responseSchema.required.length()").value(5))
-                .andExpect(jsonPath("$.contents[0].parts[0].text").value(
-                        org.hamcrest.Matchers.containsString("Based on partial data: 5 of 6 expected readings.")))
-                .andRespond(withSuccess(geminiResponse(GOOD_ANSWER), MediaType.APPLICATION_JSON));
+                .andExpect(header("Authorization", "Bearer test-key"))
+                .andExpect(jsonPath("$.model").value("groq-test-model"))
+                .andExpect(jsonPath("$.response_format.type").value("json_schema"))
+                .andExpect(jsonPath("$.response_format.json_schema.strict").value(true))
+                .andExpect(jsonPath("$.response_format.json_schema.schema.required.length()").value(5))
+                .andExpect(jsonPath("$.response_format.json_schema.schema.additionalProperties").value(false))
+                .andExpect(jsonPath("$.messages[0].role").value("system"))
+                .andExpect(jsonPath("$.messages[1].content").value(
+                        containsString("Based on partial data: 5 of 6 expected readings.")))
+                .andRespond(withSuccess(groqResponse(GOOD_ANSWER), MediaType.APPLICATION_JSON));
 
         AiExplanation ai = client.explain(context);
 
@@ -83,7 +89,7 @@ class GeminiExplanationClientTest {
 
     @Test
     void keyIsNeverPutInTheUrl() {
-        server.expect(requestTo(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("test-key"))))
+        server.expect(requestTo(not(containsString("test-key"))))
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
 
         assertThatThrownBy(() -> client.explain(context)).isInstanceOf(ExplanationException.class);
@@ -92,12 +98,12 @@ class GeminiExplanationClientTest {
 
     @Test
     void missingKey_failsWithoutCallingTheApi() {
-        GeminiExplanationClient unconfigured = GeminiExplanationClient.withRestClient(props(true, " "),
+        GroqExplanationClient unconfigured = GroqExplanationClient.withRestClient(props(true, " "),
                 RestClient.builder().build(), mapper);
 
         assertThatThrownBy(() -> unconfigured.explain(context))
                 .isInstanceOf(ExplanationException.class)
-                .hasMessageContaining("GEMINI_API_KEY is not set");
+                .hasMessageContaining("GROQ_API_KEY is not set");
     }
 
     @Test
@@ -106,13 +112,13 @@ class GeminiExplanationClientTest {
 
         assertThatThrownBy(() -> client.explain(context))
                 .isInstanceOf(ExplanationException.class)
-                .hasMessageContaining("Gemini call failed");
+                .hasMessageContaining("Groq call failed");
     }
 
     @Test
     void unknownAssessment_isRejected() throws Exception {
         String bad = GOOD_ANSWER.replace("GENUINE_TREND", "PANIC");
-        assertThatThrownBy(() -> client.parse(geminiResponse(bad)))
+        assertThatThrownBy(() -> client.parse(groqResponse(bad)))
                 .isInstanceOf(ExplanationException.class)
                 .hasMessageContaining("unknown assessment");
     }
@@ -122,22 +128,22 @@ class GeminiExplanationClientTest {
         String bad = """
                 {"assessment":"UNCERTAIN","likelyCause":"","explanation":"x","evidence":["a"],"assumptions":["b"]}
                 """;
-        assertThatThrownBy(() -> client.parse(geminiResponse(bad)))
+        assertThatThrownBy(() -> client.parse(groqResponse(bad)))
                 .isInstanceOf(ExplanationException.class)
                 .hasMessageContaining("likelyCause");
     }
 
     @Test
     void answerThatIsNotJson_isRejected() throws Exception {
-        assertThatThrownBy(() -> client.parse(geminiResponse("Sure! Here is my analysis...")))
+        assertThatThrownBy(() -> client.parse(groqResponse("Sure! Here is my analysis...")))
                 .isInstanceOf(ExplanationException.class)
                 .hasMessageContaining("not valid JSON");
     }
 
     @Test
-    void blockedPrompt_isReportedWithTheReason() {
-        assertThatThrownBy(() -> client.parse("{\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}"))
+    void errorBodyWithoutChoices_isReportedWithTheMessage() {
+        assertThatThrownBy(() -> client.parse("{\"error\":{\"message\":\"model_decommissioned\"}}"))
                 .isInstanceOf(ExplanationException.class)
-                .hasMessageContaining("SAFETY");
+                .hasMessageContaining("model_decommissioned");
     }
 }

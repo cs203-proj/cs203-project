@@ -24,7 +24,7 @@ public record EventExplanationResponse(
         boolean dataComplete,
         @Schema(example = "Based on partial data: 4 of 6 expected readings in the last 6 hours.")
         String dataQualityNote,
-        @Schema(example = "gemini-3.8-flash") String model,
+        @Schema(example = "openai/gpt-oss-120b") String model,
         @Schema(description = "Why the AI call failed; null when status is OK") String error,
         Instant createdAt
 ) {

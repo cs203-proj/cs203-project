@@ -48,7 +48,7 @@ public class EventExplanationController {
                               "assumptions": ["The station is reporting correctly", "The 30-day baseline reflects normal conditions"],
                               "dataComplete": true,
                               "dataQualityNote": "Based on complete data: 6 of 6 expected readings in the last 6 hours; latest reading 12 minutes before analysis.",
-                              "model": "gemini-3.8-flash",
+                              "model": "openai/gpt-oss-120b",
                               "error": null,
                               "createdAt": "2026-10-18T09:12:03Z"
                             }

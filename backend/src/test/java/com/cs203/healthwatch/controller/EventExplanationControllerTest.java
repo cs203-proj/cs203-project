@@ -63,7 +63,7 @@ class EventExplanationControllerTest {
         e.setAssumptions(List.of("Station reports correctly"));
         e.setDataComplete(false);
         e.setDataQualityNote("Based on partial data: 4 of 6 expected readings in the last 6 hours.");
-        e.setModel("gemini-test-model");
+        e.setModel("groq-test-model");
         when(explanationService.getForEvent(EVENT_ID)).thenReturn(e);
 
         mockMvc.perform(get("/events/{id}/explanation", EVENT_ID).header("Authorization", "Bearer " + adminToken))
