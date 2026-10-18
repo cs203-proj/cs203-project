@@ -22,7 +22,7 @@ public class ReplayController {
     @PostMapping("/replay")
     @Operation(
             summary = "Replay the Sept 2026 haze episode through detection",
-            description = "Reads the configured window of baseline_dev.readings oldest first and runs each reading "
+            description = "Reads the configured window of public.readings oldest first and runs each reading "
                     + "through the normal detector against the baseline_dev baseline. The first sustained breach "
                     + "becomes a NEW event tagged as a replay, so it is never mistaken for a live detection. "
                     + "Only one replay event can be open at a time: dismiss it to replay again.")
