@@ -39,8 +39,8 @@ public final class DeviationDetector {
         }
 
         BaselineSnapshot b = baseline.get();
-        if (b.scaledMad() <= 0) {
-            return Optional.empty(); // flat history: z-scores are meaningless
+        if (!b.hasUsableSpread()) {
+            return Optional.empty(); // MAD is 0, NaN or infinite, z-scores are meaningless
         }
 
         List<ReadingSnapshot> lastN = recentReadings.subList(

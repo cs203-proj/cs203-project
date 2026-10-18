@@ -85,6 +85,27 @@ No token or an invalid token gives `401`; a valid non-admin token gives `403`.
 - The trigger is used instead of `REVOKE` because the app connects as the table owner (it runs Flyway), and an owner can always grant privileges back to itself.
 - To wipe a local dev database, use `docker compose down -v`.
 
+## Detection
+
+A reading is scored against the baseline for its region and signal with a robust z-score:
+
+```
+z = (reading - median) / scaledMad
+```
+
+`scaledMad` is the median absolute deviation already multiplied by 1.4826, so it is comparable to a standard deviation. An event is created only when the last N readings all score above the threshold, are valid numbers, and are no further apart than the maximum gap. The values are set in `application.yml` (`z-threshold: 3.0`, `consecutive-readings: 3`, `max-gap: 90m`).
+
+The score of the worst reading becomes the event's `deviation`.
+
+### Zero-spread guard (CG-137)
+
+If a baseline's history is perfectly flat, its `scaledMad` is `0`, and dividing by it would give an infinite or `NaN` deviation. That would break the confidence score (CG-16), which uses deviation size as an input.
+
+- `BaselineSnapshot.hasUsableSpread()` is `false` when the median or `scaledMad` is `NaN` or infinite, or when `scaledMad` is `0` or negative.
+- When it is `false`, `DeviationDetector.detect()` returns no event and never divides. No infinite or `NaN` deviation can be produced.
+- Known trade-off: after a perfectly flat history, a real spike raises no alert until the baseline has some spread.
+- Covered by `DeviationDetectorTest`: a constant series with `scaledMad = 0`, a `NaN` or infinite `scaledMad`, and a check that every deviation produced is a finite number.
+
 ## Project structure
 
 - `backend/` — Spring Boot 3.3 (Java 21) API: web, JPA, Postgres, Flyway, Spring Security, JWT (jjwt), OpenAPI/Swagger.

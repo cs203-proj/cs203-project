@@ -100,6 +100,28 @@ class DeviationDetectorTest {
     }
 
     @Test
+    void constantSeries_zeroMad_noEvent() {
+        var flat = Optional.of(new BaselineSnapshot("north", "AQI", 50.0, 0.0));
+        var constant = List.of(at(0, 50), at(1, 50), at(2, 50));
+        assertThat(DeviationDetector.detect(flat, constant, Z, N, MAX_GAP)).isEmpty();
+    }
+
+    @Test
+    void nanOrInfiniteMad_noEvent() {
+        var readings = List.of(at(0, 120), at(1, 125), at(2, 130));
+        for (double mad : new double[] {Double.NaN, Double.POSITIVE_INFINITY, -1.0}) {
+            var b = Optional.of(new BaselineSnapshot("north", "AQI", 50.0, mad));
+            assertThat(DeviationDetector.detect(b, readings, Z, N, MAX_GAP)).isEmpty();
+        }
+    }
+
+    @Test
+    void anyDetectedDeviationIsFinite() {
+        var d = detect(List.of(at(0, 120), at(1, 125), at(2, 130))).orElseThrow();
+        assertThat(Double.isFinite(d.deviationSize())).isTrue();
+    }
+
+    @Test
     void consecutiveRequiredBelowOne_throws() {
         var readings = List.of(at(0, 120));
         assertThatThrownBy(() -> DeviationDetector.detect(baseline, readings, Z, 0, MAX_GAP))
