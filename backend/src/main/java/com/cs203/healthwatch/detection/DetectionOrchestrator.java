@@ -4,12 +4,15 @@ import com.cs203.healthwatch.detection.ReplayResult.Outcome;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
+import com.cs203.healthwatch.explanation.EventExplanationService;
+import com.cs203.healthwatch.explanation.ExplanationProperties;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -27,6 +30,8 @@ public class DetectionOrchestrator {
     private final ReadingRepository readingRepository;
     private final BaselineDevRepository baselineDevRepository;
     private final DetectionProperties config;
+    private final EventExplanationService explanationService;
+    private final ExplanationProperties explanationConfig;
 
     /**
      * Live detection, run after every ingestion pull: the latest real readings in public.readings, compared with
@@ -49,9 +54,18 @@ public class DetectionOrchestrator {
                 loadRecentLiveReadings(region, config.sourceType(), signalType, config.consecutiveReadings()));
         Collections.reverse(recent);
 
-        return DeviationDetector.detect(
+        Optional<DetectedEvent> created = DeviationDetector.detect(
                         baseline, recent, config.zThreshold(), config.consecutiveReadings(), config.maxGap())
                 .flatMap(d -> saveIfNoneOpen(d, false));
+
+        // CG-135: explain the new event. The event is already saved, so nothing here can undo or block it.
+        created.ifPresent(event -> explain(event, baseline.get(), () -> {
+            List<ReadingSnapshot> evidence = new ArrayList<>(loadRecentLiveReadings(
+                    region, config.sourceType(), signalType, explanationConfig.maxEvidenceReadings()));
+            Collections.reverse(evidence);
+            return evidence;
+        }));
+        return created;
     }
 
     /**
@@ -84,11 +98,29 @@ public class DetectionOrchestrator {
         }
 
         return saveIfNoneOpen(deviation.get(), true)
+                .map(event -> {
+                    // CG-135: explain using the replay readings up to the detection point, as a live run would have
+                    Instant until = event.getDetectedAt().plusSeconds(1);
+                    explain(event, baseline.get(), () -> readings.stream()
+                            .filter(r -> r.observedAt().isBefore(until))
+                            .toList());
+                    return event;
+                })
                 .map(event -> new ReplayResult(Outcome.CREATED, "Replay event created",
                         readings.size(), baseline.get(), event))
                 .orElseGet(() -> new ReplayResult(Outcome.ALREADY_OPEN,
                         "A replay event is already open for this region and signal; dismiss it to replay again",
                         readings.size(), baseline.get(), null));
+    }
+
+    /** Runs the AI explanation for a new event. Any failure is logged and swallowed: detection must carry on. */
+    private void explain(DetectedEvent event, BaselineSnapshot baseline, Supplier<List<ReadingSnapshot>> readings) {
+        try {
+            explanationService.explainNewEvent(event, baseline, readings.get(), config.zThreshold(),
+                    config.consecutiveReadings());
+        } catch (Exception e) {
+            log.error("Explanation step failed for event {}; event stays NEW: {}", event.getId(), e.getMessage(), e);
+        }
     }
 
     private Optional<BaselineSnapshot> usableBaseline(String region, String signalType) {

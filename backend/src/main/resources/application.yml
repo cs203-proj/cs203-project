@@ -46,6 +46,16 @@ app:
         signal-type: pm25
         from: "2026-09-03T00:00:00Z"
         to: "2026-09-05T00:00:00Z" # exclusive
+  explanation: # CG-135: AI explanation of each new event (Gemini free tier)
+    enabled: ${AI_EXPLANATION_ENABLED:true}
+    api-key: ${GEMINI_API_KEY:} # blank: every explanation is stored as FAILED "not configured", events unaffected
+    model: ${GEMINI_MODEL:gemini-3.8-flash}
+    base-url: https://generativelanguage.googleapis.com/v1beta
+    timeout: 20s
+    lookback: 6h # window for the stale/partial-data check and the readings sent to the AI
+    expected-interval: 60m # hourly PM2.5 feed
+    stale-after: 2h
+    max-evidence-readings: 12
   seed:
     admin-username: ${ADMIN_SEED_USERNAME:#{null}}
     admin-password: ${ADMIN_SEED_PASSWORD:#{null}}
