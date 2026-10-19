@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
@@ -30,14 +31,18 @@ class WarningAuditEndpointTest {
     private String adminToken;
     private String viewerToken;
 
+    
+    @Autowired
+    private PasswordEncoder passwordEncoder;
     @BeforeEach
     void createUsers() {
-        jdbc.update("delete from audit_log");
         jdbc.update("delete from warnings");
         jdbc.update("delete from events");
         jdbc.update("delete from users");
-        userRepository.save(new User("admin", "hash", "admin"));
-        userRepository.save(new User("viewer", "hash", "viewer"));
+        userRepository.save(new User(
+            "admin", passwordEncoder.encode("admin"), "admin"));
+    userRepository.save(new User(
+            "viewer", passwordEncoder.encode("viewer"), "viewer"));
         adminToken = jwtService.generateToken("admin", "admin");
         viewerToken = jwtService.generateToken("viewer", "viewer");
     }
