@@ -13,6 +13,6 @@ public record DetectionProperties(
         Duration maxGap,
         Replay replay
 ) {
-    /** The historical window POST /demo/replay pushes through detection, read from baseline_dev.readings. */
+    /** The historical window POST /demo/replay pushes through detection, read from public.readings. */
     public record Replay(String region, String signalType, String from, String to) {}
 }
