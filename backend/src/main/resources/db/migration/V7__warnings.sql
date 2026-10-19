@@ -17,3 +17,17 @@ create table warnings (
 -- Review queue (GET /warnings?status=PENDING_REVIEW): filter by status, then oldest first within a severity (CG-29)
 create index idx_warnings_status_created on warnings (status, created_at, id);
 create index idx_warnings_event on warnings (event_id);
+
+-- warning_text is the original AI draft (CG-21: "never overwritten"). Enforced in the database, like audit_log
+-- in V3, so no code path or direct SQL can change it. Other columns (status, severity) stay updatable.
+create or replace function warnings_reject_text_change() returns trigger as $$
+begin
+    raise exception 'warnings.warning_text is the original AI draft and cannot be changed';
+end;
+$$ language plpgsql;
+
+create trigger warnings_warning_text_immutable
+    before update of warning_text on warnings
+    for each row
+    when (old.warning_text is distinct from new.warning_text)
+    execute function warnings_reject_text_change();

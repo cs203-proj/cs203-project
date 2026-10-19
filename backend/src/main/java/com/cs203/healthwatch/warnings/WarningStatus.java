@@ -2,6 +2,7 @@ package com.cs203.healthwatch.warnings;
 
 import com.cs203.healthwatch.common.exception.BadRequestException;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -13,7 +14,11 @@ public enum WarningStatus {
 
     /** Parses a user-supplied value ("pending_review", "pending review"); rejects anything else with a 400. */
     public static WarningStatus parse(String value) {
-        String normalised = value.trim().toUpperCase().replace(' ', '_').replace('-', '_');
+        if (value == null || value.isBlank()) {
+            throw new BadRequestException("Status is required");
+        }
+
+        String normalised = value.trim().toUpperCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
         for (WarningStatus status : values()) {
             if (status.name().equals(normalised)) {
                 return status;
