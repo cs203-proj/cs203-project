@@ -33,6 +33,7 @@ class WarningAuditEndpointTest {
     @BeforeEach
     void createUsers() {
         jdbc.update("delete from audit_log");
+        jdbc.update("delete from warnings");
         jdbc.update("delete from events");
         jdbc.update("delete from users");
         userRepository.save(new User("admin", "hash", "admin"));
@@ -49,26 +50,34 @@ class WarningAuditEndpointTest {
     }
 
     @Test
-    void returnsEntriesOldestFirstAndBreaksTiesById() throws Exception {
-        UUID w = UUID.randomUUID();
-        Instant t = Instant.parse("2026-09-24T04:00:00Z");
-        insertEntry(w, "THIRD", t.plusSeconds(60));
-        insertEntry(w, "FIRST", t);
-        insertEntry(w, "FIRST_TIE", t);
+void returnsEntriesOldestFirstAndBreaksTiesById() throws Exception {
+    UUID eventId = jdbc.queryForObject("""
+            insert into events (signal_type, region, detected_at, deviation, status, is_replay)
+            values ('pm25', 'test-region', now(), 4.2, 'NEW', false) returning id
+            """, UUID.class);
+    UUID w = jdbc.queryForObject("""
+            insert into warnings (event_id, severity, warning_text)
+            values (?, 'LOW', 'test draft') returning id
+            """, UUID.class, eventId);
 
-        mvc.perform(get("/warnings/" + w + "/audit").header("Authorization", "Bearer " + adminToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].action").value("FIRST"))
-                .andExpect(jsonPath("$[1].action").value("FIRST_TIE"))
-                .andExpect(jsonPath("$[2].action").value("THIRD"));
-    }
+    Instant t = Instant.parse("2026-09-24T04:00:00Z");
+    insertEntry(w, "THIRD", t.plusSeconds(60));
+    insertEntry(w, "FIRST", t);
+    insertEntry(w, "FIRST_TIE", t);
+
+    mvc.perform(get("/warnings/" + w + "/audit").header("Authorization", "Bearer " + adminToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].action").value("FIRST"))
+            .andExpect(jsonPath("$[1].action").value("FIRST_TIE"))
+            .andExpect(jsonPath("$[2].action").value("THIRD"));
+}
 
     @Test
-    void unknownWarningReturnsEmptyList() throws Exception {
+    void unknownWarningReturns404() throws Exception {
         mvc.perform(get("/warnings/" + UUID.randomUUID() + "/audit")
                         .header("Authorization", "Bearer " + adminToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isEmpty());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
     }
 
     @Test
