@@ -5,6 +5,7 @@ import com.cs203.healthwatch.common.exception.ResourceNotFoundException;
 import com.cs203.healthwatch.dto.AuditEntryResponse;
 import com.cs203.healthwatch.dto.EventListResponse;
 import com.cs203.healthwatch.dto.EventResponse;
+import com.cs203.healthwatch.dto.WarningResponse;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
@@ -13,6 +14,8 @@ import com.cs203.healthwatch.model.User;
 import com.cs203.healthwatch.repository.AuditLogRepository;
 import com.cs203.healthwatch.repository.OffsetPageRequest;
 import com.cs203.healthwatch.repository.UserRepository;
+import com.cs203.healthwatch.warnings.WarningDraftService;
+import com.cs203.healthwatch.warnings.WarningRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -31,12 +34,17 @@ public class EventService {
     private final EventRepository eventRepository;
     private final AuditLogRepository auditLogRepository;
     private final UserRepository userRepository;
+    private final WarningDraftService warningDraftService;
+    private final WarningRepository warningRepository;
 
     public EventService(EventRepository eventRepository, AuditLogRepository auditLogRepository,
-                        UserRepository userRepository) {
+                        UserRepository userRepository, WarningDraftService warningDraftService,
+                        WarningRepository warningRepository) {
         this.eventRepository = eventRepository;
         this.auditLogRepository = auditLogRepository;
         this.userRepository = userRepository;
+        this.warningDraftService = warningDraftService;
+        this.warningRepository = warningRepository;
     }
 
     /** @param status optional status filter (case-insensitive); null returns every status */
@@ -60,8 +68,8 @@ public class EventService {
     }
 
     /**
-     * Moves an event to a new status and records the change in the audit log. Both writes share one transaction:
-     * if either fails, neither is kept.
+     * Moves an event to a new status and records the change in the audit log. Confirming an event also drafts its
+     * general-public warning (CG-21). All writes share one transaction: if any fails, none is kept.
      *
      * @param actorId id of the authenticated user making the change (from the token, never the request body)
      */
@@ -88,6 +96,7 @@ public class EventService {
         eventRepository.saveAndFlush(event);
         // Must not be caught here: if this insert fails, the status update above has to roll back with it.
         auditLogRepository.save(new AuditLog(eventId, actorId, current, target, Instant.now()));
+        warningDraftService.draftFor(event);
         return EventResponse.from(event);
     }
 
@@ -106,6 +115,17 @@ public class EventService {
         return entries.stream()
                 .map(e -> new AuditEntryResponse(e.getId(), e.getActorId(), usernames.get(e.getActorId()),
                         e.getOldStatus(), e.getNewStatus(), e.getChangedAt()))
+                .toList();
+    }
+
+    /** Warnings drafted from one event, oldest first. */
+    @Transactional(readOnly = true)
+    public List<WarningResponse> warnings(UUID eventId) {
+        if (!eventRepository.existsById(eventId)) {
+            throw eventNotFound(eventId);
+        }
+        return warningRepository.findByEventIdOrderByCreatedAtAscIdAsc(eventId).stream()
+                .map(WarningResponse::from)
                 .toList();
     }
 

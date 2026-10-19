@@ -5,6 +5,7 @@ import com.cs203.healthwatch.dto.AuditEntryResponse;
 import com.cs203.healthwatch.dto.EventListResponse;
 import com.cs203.healthwatch.dto.EventResponse;
 import com.cs203.healthwatch.dto.UpdateEventStatusRequest;
+import com.cs203.healthwatch.dto.WarningResponse;
 import com.cs203.healthwatch.security.AuthenticatedUser;
 import com.cs203.healthwatch.service.EventService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -100,7 +101,8 @@ public class EventController {
     @Operation(
             summary = "Change an event's status",
             description = "Moves an event through its lifecycle and records the change in the audit log, in one "
-                    + "transaction. Allowed moves: NEW → UNDER_REVIEW or DISMISSED; UNDER_REVIEW → CONFIRMED or "
+                    + "transaction. Moving to CONFIRMED also drafts a general-public warning (status PENDING_REVIEW, "
+                    + "never sent) in the same transaction. Allowed moves: NEW → UNDER_REVIEW or DISMISSED; UNDER_REVIEW → CONFIRMED or "
                     + "DISMISSED; DISMISSED → UNDER_REVIEW (reopen). CONFIRMED is final. The actor recorded is "
                     + "always the user in the bearer token; any actor sent in the body is ignored.")
     @ApiResponse(responseCode = "200", description = "Status changed; the updated event is returned",
@@ -179,5 +181,38 @@ public class EventController {
             @Parameter(description = "Event id", example = "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b")
             @PathVariable UUID id) {
         return eventService.auditTrail(id);
+    }
+
+    @GetMapping("/{id}/warnings")
+    @Operation(
+            summary = "Get the warnings drafted from an event",
+            description = "Warnings are drafted automatically when the event is confirmed and start as "
+                    + "PENDING_REVIEW. Nothing is sent to the public. warningText is the original draft and is never "
+                    + "overwritten. Returns an empty list if the event has not been confirmed.")
+    @ApiResponse(responseCode = "200", description = "Drafted warnings, oldest first",
+            content = @Content(mediaType = "application/json",
+                    array = @ArraySchema(schema = @Schema(implementation = WarningResponse.class)),
+                    examples = @ExampleObject(value = """
+                            [
+                              {
+                                "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+                                "eventId": "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b",
+                                "audience": "GENERAL_PUBLIC",
+                                "severity": "HIGH",
+                                "status": "PENDING_REVIEW",
+                                "warningText": "PM2.5 (fine particle pollution) alert for the central region (high severity).\nWhat happened: PM2.5 (fine particle pollution) readings rose well above normal levels for this area, detected at 24 Sep 2026, 11:15 AM (Singapore time).\nConfidence: not yet assessed.\nWhat you should do: Avoid strenuous outdoor activity and keep windows closed while levels stay high.",
+                                "createdAt": "2026-09-24T06:47:30Z"
+                              }
+                            ]
+                            """)))
+    @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired token", content = @Content)
+    @ApiResponse(responseCode = "403", description = "Token is valid but the user is not an admin", content = @Content)
+    @ApiResponse(responseCode = "404", description = "No event with this id",
+            content = @Content(mediaType = "application/json",
+                    schema = @Schema(implementation = ApiErrorResponse.class)))
+    public List<WarningResponse> warnings(
+            @Parameter(description = "Event id", example = "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b")
+            @PathVariable UUID id) {
+        return eventService.warnings(id);
     }
 }

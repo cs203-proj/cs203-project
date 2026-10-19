@@ -85,6 +85,32 @@ No token or an invalid token gives `401`; a valid non-admin token gives `403`.
 - The trigger is used instead of `REVOKE` because the app connects as the table owner (it runs Flyway), and an owner can always grant privileges back to itself.
 - To wipe a local dev database, use `docker compose down -v`.
 
+## Warning drafts (CG-21)
+
+Moving an event to `CONFIRMED` drafts one warning for the general public, in the same transaction as the status
+change. If the draft cannot be saved, the confirm is rolled back too. Drafts start as `PENDING_REVIEW`; nothing is
+sent to anyone.
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /events/{id}/warnings` | Warnings drafted from the event, oldest first. Empty before the event is confirmed; unknown event gives `404`. |
+
+Each draft says what happened, the confidence level, and one recommended action. Severity comes from the event's
+robust z-score (detection only fires above 3):
+
+| z-score | Severity | Recommended action |
+| --- | --- | --- |
+| below 5 | `LOW` | Check air quality updates before planning long outdoor activities today. |
+| 5 to below 8 | `MEDIUM` | Cut down on prolonged or strenuous outdoor activity, especially with heart or lung conditions. |
+| 8 to below 12 | `HIGH` | Avoid strenuous outdoor activity and keep windows closed. |
+| 12 and above | `CRITICAL` | Stay indoors where possible, keep windows closed, wear an N95 mask outside. |
+
+- `warningText` is the original draft. The column is not updatable, so admin edits (CG-28) must be stored alongside it.
+- Drafts are built from a fixed template, so the same event always gives the same text and the health advice is
+  never invented per event.
+- Until CG-16 stores a confidence score with the event, drafts say "Confidence: not yet assessed."
+- Per-audience drafts (vulnerable groups, healthcare workers) are Sprint 3.
+
 ## Project structure
 
 - `backend/` — Spring Boot 3.3 (Java 21) API: web, JPA, Postgres, Flyway, Spring Security, JWT (jjwt), OpenAPI/Swagger.
