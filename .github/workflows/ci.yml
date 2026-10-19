@@ -46,5 +46,12 @@ jobs:
       - name: Make the Maven wrapper runnable
         run: chmod +x mvnw
 
+      - name: Create Supabase-compatible roles
+        env:
+          PGPASSWORD: healthwatch
+        run: |
+          psql -h localhost -U healthwatch -d healthwatch -c "CREATE ROLE anon;"
+          psql -h localhost -U healthwatch -d healthwatch -c "CREATE ROLE authenticated;"
+
       - name: Build and run tests
         run: ./mvnw -B verify

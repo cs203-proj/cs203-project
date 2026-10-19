@@ -6,6 +6,7 @@ import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -25,7 +26,7 @@ public class DetectionOrchestrator {
 
     private final EventRepository eventRepository;
     private final ReadingRepository readingRepository;
-    private final BaselineDevRepository baselineDevRepository;
+    private final BaselineRepository baselineRepository;
     private final DetectionProperties config;
 
     /**
@@ -55,7 +56,7 @@ public class DetectionOrchestrator {
     }
 
     /**
-     * Demo replay (S1-6): walks the configured historical window of baseline_dev.readings through the same detector,
+     * Demo replay (S1-6): walks the configured historical window of public.readings through the same detector,
      * reading by reading as if it were arriving live, and records the first sustained breach as a replay event.
      */
     public ReplayResult replayDemoWindow() {
@@ -65,14 +66,16 @@ public class DetectionOrchestrator {
 
         Optional<BaselineSnapshot> baseline = usableBaseline(window.region(), window.signalType());
         if (baseline.isEmpty()) {
-            return new ReplayResult(Outcome.NO_BASELINE, "No usable baseline in baseline_dev.baselines for "
+            return new ReplayResult(Outcome.NO_BASELINE, "No usable baseline in public.baselines for "
                     + window.region() + "/" + window.signalType(), 0, null, null);
         }
 
-        List<ReadingSnapshot> readings =
-                baselineDevRepository.readingsBetween(window.region(), window.signalType(), from, to);
+        List<ReadingSnapshot> readings = readingRepository
+                .findValidBetween(window.region(), config.sourceType(), from.atOffset(ZoneOffset.UTC), to.atOffset(ZoneOffset.UTC))
+                .stream().map(r -> new ReadingSnapshot(r.getRegion(), window.signalType(),r.getValue(), r.getObservedAt().toInstant()))
+                .toList();
         if (readings.isEmpty()) {
-            return new ReplayResult(Outcome.NO_READINGS, "No valid readings in baseline_dev.readings between "
+            return new ReplayResult(Outcome.NO_READINGS, "No valid readings in public.readings between "
                     + from + " and " + to, 0, baseline.get(), null);
         }
 
@@ -92,7 +95,7 @@ public class DetectionOrchestrator {
     }
 
     private Optional<BaselineSnapshot> usableBaseline(String region, String signalType) {
-        Optional<BaselineSnapshot> baseline = baselineDevRepository.latestBaseline(region, signalType);
+        Optional<BaselineSnapshot> baseline = baselineRepository.latestBaseline(region, signalType, config.sourceType());
         if (baseline.isEmpty()) {
             log.info("No baseline for {}/{} — skipping detection", region, signalType);
             return Optional.empty();
