@@ -1,10 +1,15 @@
 package com.cs203.healthwatch.detection;
 
+import com.cs203.healthwatch.confidence.ConfidenceInputs;
+import com.cs203.healthwatch.confidence.ConfidenceResult;
+import com.cs203.healthwatch.confidence.ConfidenceScorer;
 import com.cs203.healthwatch.detection.ReplayResult.Outcome;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -28,6 +33,7 @@ public class DetectionOrchestrator {
     private final ReadingRepository readingRepository;
     private final BaselineRepository baselineRepository;
     private final DetectionProperties config;
+    private final Clock clock;
 
     /**
      * Live detection, run after every ingestion pull: the latest real readings in public.readings, compared with
@@ -46,13 +52,16 @@ public class DetectionOrchestrator {
         }
 
         // query returns newest first; the detector expects oldest -> newest
+        // load a full confidence window of readings; the detector itself only looks at the last N
+        int limit = Math.max(config.consecutiveReadings(), ConfidenceScorer.EXPECTED_READINGS);
         List<ReadingSnapshot> recent = new ArrayList<>(
-                loadRecentLiveReadings(region, config.sourceType(), signalType, config.consecutiveReadings()));
+                loadRecentLiveReadings(region, config.sourceType(), signalType, limit));
         Collections.reverse(recent);
 
+        Instant now = clock.instant();
         return DeviationDetector.detect(
                         baseline, recent, config.zThreshold(), config.consecutiveReadings(), config.maxGap())
-                .flatMap(d -> saveIfNoneOpen(d, false));
+                .flatMap(d -> saveIfNoneOpen(d, false, now, countInWindow(recent, d.timestamp())));
     }
 
     /**
@@ -86,7 +95,10 @@ public class DetectionOrchestrator {
                     readings.size(), baseline.get(), null);
         }
 
-        return saveIfNoneOpen(deviation.get(), true)
+        // replay is scored as of the detection moment, as if it had just happened (staleness 0)
+        Deviation found = deviation.get();
+        int inWindow = countInWindow(readings, found.timestamp());
+        return saveIfNoneOpen(found, true, found.timestamp(), inWindow)
                 .map(event -> new ReplayResult(Outcome.CREATED, "Replay event created",
                         readings.size(), baseline.get(), event))
                 .orElseGet(() -> new ReplayResult(Outcome.ALREADY_OPEN,
@@ -100,15 +112,31 @@ public class DetectionOrchestrator {
             log.info("No baseline for {}/{} — skipping detection", region, signalType);
             return Optional.empty();
         }
-        if (baseline.get().scaledMad() <= 0) {
-            log.warn("Baseline for {}/{} has zero spread (flat history) — skipping detection", region, signalType);
+        if (!baseline.get().hasUsableSpread()) {
+            log.warn("Baseline for {}/{} has zero or non-finite spread (CG-137 guard) — skipping detection",
+                    region, signalType);
             return Optional.empty();
         }
         return baseline;
     }
 
-    /** Saves a NEW event unless one of the same kind (live or replay) is already open for this region and signal. */
-    private Optional<DetectedEvent> saveIfNoneOpen(Deviation d, boolean replay) {
+    /** Valid readings in the confidence window ending at {@code end} (inclusive); the window is 24h. */
+    private static int countInWindow(List<ReadingSnapshot> readings, Instant end) {
+        Instant start = end.minus(ConfidenceScorer.WINDOW);
+        return (int) readings.stream()
+                .filter(r -> r != null && Double.isFinite(r.value()))
+                .filter(r -> r.observedAt().isAfter(start) && !r.observedAt().isAfter(end))
+                .count();
+    }
+
+    /**
+     * Saves a NEW event unless one of the same kind (live or replay) is already open for this region and signal.
+     * The confidence score is computed here by ConfidenceScorer from measured inputs and stored with the event.
+     *
+     * @param scoredAt       the moment staleness is measured against (now for live; detection time for replay)
+     * @param readingCount   valid readings in the 24h window before the event
+     */
+    private Optional<DetectedEvent> saveIfNoneOpen(Deviation d, boolean replay, Instant scoredAt, int readingCount) {
         boolean alreadyOpen = eventRepository
                 .findFirstByRegionAndSignalTypeAndReplayAndStatusIn(d.region(), d.signalType(), replay, OPEN_STATUSES)
                 .isPresent();
@@ -125,10 +153,19 @@ public class DetectionOrchestrator {
         event.setDeviation(d.deviationSize());
         event.setStatus(EventStatus.NEW);
         event.setReplay(replay);
+
+        // source agreement is null until a second source exists (CG-136); the scorer leaves it out
+        ConfidenceInputs inputs = new ConfidenceInputs(
+                Math.max(0, Duration.between(d.timestamp(), scoredAt).toSeconds()),
+                readingCount, d.deviationSize(), null);
+        ConfidenceResult confidence = ConfidenceScorer.score(inputs);
+        event.applyConfidence(inputs, confidence);
+
         DetectedEvent saved = eventRepository.save(event);
 
-        log.info("Created NEW {} event for {}/{} — deviation={}",
-                replay ? "replay" : "live", d.region(), d.signalType(), d.deviationSize());
+        log.info("Created NEW {} event for {}/{} — deviation={} confidence={} ({})",
+                replay ? "replay" : "live", d.region(), d.signalType(), d.deviationSize(),
+                confidence.score(), confidence.level());
         return Optional.of(saved);
     }
 
