@@ -13,10 +13,18 @@ public record EventResponse(
         @Schema(example = "AQI") String signalType,
         @Schema(example = "Singapore") String region,
         @Schema(example = "NEW") EventStatus status,
-        @Schema(description = "How far the reading deviated from its baseline", example = "4.2") Double deviationSize
+        @Schema(description = "How far the reading deviated from its baseline", example = "4.2") Double deviationSize,
+        @Schema(description = "Computed confidence in this event; null for events created before scoring existed")
+        ConfidenceResponse confidence
 ) {
+    /** Event without a confidence score. */
+    public EventResponse(UUID id, Instant timestamp, String signalType, String region, EventStatus status,
+                         Double deviationSize) {
+        this(id, timestamp, signalType, region, status, deviationSize, null);
+    }
+
     public static EventResponse from(DetectedEvent event) {
         return new EventResponse(event.getId(), event.getDetectedAt(), event.getSignalType(), event.getRegion(),
-                event.getStatus(), event.getDeviation());
+                event.getStatus(), event.getDeviation(), ConfidenceResponse.from(event));
     }
 }

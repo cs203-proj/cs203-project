@@ -116,6 +116,19 @@ class DeviationDetectorTest {
     }
 
     @Test
+    void infiniteReading_noEvent() {
+        assertThat(detect(List.of(at(0, 120), at(1, Double.POSITIVE_INFINITY), at(2, 130)))).isEmpty();
+    }
+
+    @Test
+    void tinyMad_thatWouldOverflowToInfinity_noEvent() {
+        // 80 / Double.MIN_VALUE overflows to +Infinity: rejected rather than reported as a deviation
+        var tiny = Optional.of(new BaselineSnapshot("north", "AQI", 50.0, Double.MIN_VALUE));
+        var readings = List.of(at(0, 120), at(1, 125), at(2, 130));
+        assertThat(DeviationDetector.detect(tiny, readings, Z, N, MAX_GAP)).isEmpty();
+    }
+
+    @Test
     void anyDetectedDeviationIsFinite() {
         var d = detect(List.of(at(0, 120), at(1, 125), at(2, 130))).orElseThrow();
         assertThat(Double.isFinite(d.deviationSize())).isTrue();

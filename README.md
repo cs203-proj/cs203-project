@@ -130,3 +130,8 @@ request after idling can take up to a minute.
 Set in Render under Environment; see `.env.example` for the full list.
 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` come from Supabase (Connect → Session
 pooler); `JWT_SECRET` is a long random string.
+
+## Confidence score
+
+Each detected event carries a computed confidence (score 0 to 1 and Low / Medium / High) in the `confidence` field of
+the `/events` responses.
