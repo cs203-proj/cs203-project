@@ -26,6 +26,7 @@ public record DataQuality(boolean complete, String note, int readingsInWindow, i
      */
     public static DataQuality assess(List<ReadingSnapshot> readings, Instant referenceTime, Duration lookback,
                                      Duration expectedInterval, Duration staleAfter) {
+        readings = readings.stream().filter(r -> Double.isFinite(r.value())).toList(); // NaN/null readings aren't data
         int expected = (int) Math.max(1, lookback.toMinutes() / Math.max(1, expectedInterval.toMinutes()));
         String window = "the last " + describe(lookback);
 

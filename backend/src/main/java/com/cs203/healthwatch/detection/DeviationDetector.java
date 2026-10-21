@@ -39,8 +39,8 @@ public final class DeviationDetector {
         }
 
         BaselineSnapshot b = baseline.get();
-        if (b.scaledMad() <= 0) {
-            return Optional.empty(); // flat history: z-scores are meaningless
+        if (!b.hasUsableSpread()) {
+            return Optional.empty(); // MAD is 0, NaN or infinite, z-scores are meaningless
         }
 
         List<ReadingSnapshot> lastN = recentReadings.subList(
@@ -51,8 +51,8 @@ public final class DeviationDetector {
         for (int i = 0; i < lastN.size(); i++) {
             ReadingSnapshot r = lastN.get(i);
 
-            if (r == null || Double.isNaN(r.value())) {
-                return Optional.empty(); // invalid reading: no event
+            if (r == null || !Double.isFinite(r.value())) {
+                return Optional.empty(); // invalid reading (null, NaN or infinite): no event
             }
 
             if (i > 0) {
@@ -63,6 +63,9 @@ public final class DeviationDetector {
             }
 
             double z = (r.value() - b.median()) / b.scaledMad();
+            if (!Double.isFinite(z)) {
+                return Optional.empty(); // defensive: a deviation is never NaN or infinite (e.g. tiny MAD overflow)
+            }
             if (z <= zThreshold) {
                 return Optional.empty(); // at least one reading not breaching: no event
             }

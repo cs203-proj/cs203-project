@@ -120,7 +120,9 @@ public class EventExplanationService {
         if (readings == null) {
             return List.of();
         }
-        return readings.size() <= n ? readings : readings.subList(readings.size() - n, readings.size());
+        // readings are oldest first, so the newest n are the tail; non-finite values (null in the DB) never reach the prompt
+        List<ReadingSnapshot> finite = readings.stream().filter(r -> Double.isFinite(r.value())).toList();
+        return finite.size() <= n ? finite : finite.subList(finite.size() - n, finite.size());
     }
 
     private static String truncate(String message) {

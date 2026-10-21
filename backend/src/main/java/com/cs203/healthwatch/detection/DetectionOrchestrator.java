@@ -1,18 +1,22 @@
 package com.cs203.healthwatch.detection;
 
+import com.cs203.healthwatch.confidence.ConfidenceInputs;
+import com.cs203.healthwatch.confidence.ConfidenceResult;
+import com.cs203.healthwatch.confidence.ConfidenceScorer;
 import com.cs203.healthwatch.detection.ReplayResult.Outcome;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
 import com.cs203.healthwatch.explanation.EventExplanationService;
-import com.cs203.healthwatch.explanation.ExplanationProperties;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -28,10 +32,10 @@ public class DetectionOrchestrator {
 
     private final EventRepository eventRepository;
     private final ReadingRepository readingRepository;
-    private final BaselineDevRepository baselineDevRepository;
+    private final BaselineRepository baselineRepository;
     private final DetectionProperties config;
+    private final Clock clock;
     private final EventExplanationService explanationService;
-    private final ExplanationProperties explanationConfig;
 
     /**
      * Live detection, run after every ingestion pull: the latest real readings in public.readings, compared with
@@ -50,26 +54,24 @@ public class DetectionOrchestrator {
         }
 
         // query returns newest first; the detector expects oldest -> newest
+        // load a full confidence window of readings; the detector itself only looks at the last N
+        int limit = Math.max(config.consecutiveReadings(), ConfidenceScorer.EXPECTED_READINGS);
         List<ReadingSnapshot> recent = new ArrayList<>(
-                loadRecentLiveReadings(region, config.sourceType(), signalType, config.consecutiveReadings()));
+                loadRecentLiveReadings(region, config.sourceType(), signalType, limit));
         Collections.reverse(recent);
 
+        Instant now = clock.instant();
         Optional<DetectedEvent> created = DeviationDetector.detect(
                         baseline, recent, config.zThreshold(), config.consecutiveReadings(), config.maxGap())
-                .flatMap(d -> saveIfNoneOpen(d, false));
+                .flatMap(d -> saveIfNoneOpen(d, false, now, countInWindow(recent, d.timestamp())));
 
         // CG-135: explain the new event. The event is already saved, so nothing here can undo or block it.
-        created.ifPresent(event -> explain(event, baseline.get(), () -> {
-            List<ReadingSnapshot> evidence = new ArrayList<>(loadRecentLiveReadings(
-                    region, config.sourceType(), signalType, explanationConfig.maxEvidenceReadings()));
-            Collections.reverse(evidence);
-            return evidence;
-        }));
+        created.ifPresent(event -> explain(event, baseline.get(), recent));
         return created;
     }
 
     /**
-     * Demo replay (S1-6): walks the configured historical window of baseline_dev.readings through the same detector,
+     * Demo replay (S1-6): walks the configured historical window of public.readings through the same detector,
      * reading by reading as if it were arriving live, and records the first sustained breach as a replay event.
      */
     public ReplayResult replayDemoWindow() {
@@ -79,14 +81,16 @@ public class DetectionOrchestrator {
 
         Optional<BaselineSnapshot> baseline = usableBaseline(window.region(), window.signalType());
         if (baseline.isEmpty()) {
-            return new ReplayResult(Outcome.NO_BASELINE, "No usable baseline in baseline_dev.baselines for "
+            return new ReplayResult(Outcome.NO_BASELINE, "No usable baseline in public.baselines for "
                     + window.region() + "/" + window.signalType(), 0, null, null);
         }
 
-        List<ReadingSnapshot> readings =
-                baselineDevRepository.readingsBetween(window.region(), window.signalType(), from, to);
+        List<ReadingSnapshot> readings = readingRepository
+                .findValidBetween(window.region(), config.sourceType(), from.atOffset(ZoneOffset.UTC), to.atOffset(ZoneOffset.UTC))
+                .stream().map(r -> new ReadingSnapshot(r.getRegion(), window.signalType(),r.getValue(), r.getObservedAt().toInstant()))
+                .toList();
         if (readings.isEmpty()) {
-            return new ReplayResult(Outcome.NO_READINGS, "No valid readings in baseline_dev.readings between "
+            return new ReplayResult(Outcome.NO_READINGS, "No valid readings in public.readings between "
                     + from + " and " + to, 0, baseline.get(), null);
         }
 
@@ -97,12 +101,14 @@ public class DetectionOrchestrator {
                     readings.size(), baseline.get(), null);
         }
 
-        return saveIfNoneOpen(deviation.get(), true)
+        // replay is scored as of the detection moment, as if it had just happened (staleness 0)
+        Deviation found = deviation.get();
+        int inWindow = countInWindow(readings, found.timestamp());
+        return saveIfNoneOpen(found, true, found.timestamp(), inWindow)
                 .map(event -> {
                     // CG-135: explain using the replay readings up to the detection point, as a live run would have
-                    Instant until = event.getDetectedAt().plusSeconds(1);
-                    explain(event, baseline.get(), () -> readings.stream()
-                            .filter(r -> r.observedAt().isBefore(until))
+                    explain(event, baseline.get(), readings.stream()
+                            .filter(r -> !r.observedAt().isAfter(found.timestamp()))
                             .toList());
                     return event;
                 })
@@ -114,9 +120,9 @@ public class DetectionOrchestrator {
     }
 
     /** Runs the AI explanation for a new event. Any failure is logged and swallowed: detection must carry on. */
-    private void explain(DetectedEvent event, BaselineSnapshot baseline, Supplier<List<ReadingSnapshot>> readings) {
+    private void explain(DetectedEvent event, BaselineSnapshot baseline, List<ReadingSnapshot> readings) {
         try {
-            explanationService.explainNewEvent(event, baseline, readings.get(), config.zThreshold(),
+            explanationService.explainNewEvent(event, baseline, readings, config.zThreshold(),
                     config.consecutiveReadings());
         } catch (Exception e) {
             log.error("Explanation step failed for event {}; event stays NEW: {}", event.getId(), e.getMessage(), e);
@@ -124,20 +130,36 @@ public class DetectionOrchestrator {
     }
 
     private Optional<BaselineSnapshot> usableBaseline(String region, String signalType) {
-        Optional<BaselineSnapshot> baseline = baselineDevRepository.latestBaseline(region, signalType);
+        Optional<BaselineSnapshot> baseline = baselineRepository.latestBaseline(region, signalType, config.sourceType());
         if (baseline.isEmpty()) {
             log.info("No baseline for {}/{} — skipping detection", region, signalType);
             return Optional.empty();
         }
-        if (baseline.get().scaledMad() <= 0) {
-            log.warn("Baseline for {}/{} has zero spread (flat history) — skipping detection", region, signalType);
+        if (!baseline.get().hasUsableSpread()) {
+            log.warn("Baseline for {}/{} has zero or non-finite spread (CG-137 guard) — skipping detection",
+                    region, signalType);
             return Optional.empty();
         }
         return baseline;
     }
 
-    /** Saves a NEW event unless one of the same kind (live or replay) is already open for this region and signal. */
-    private Optional<DetectedEvent> saveIfNoneOpen(Deviation d, boolean replay) {
+    /** Valid readings in the confidence window ending at {@code end} (inclusive); the window is 24h. */
+    private static int countInWindow(List<ReadingSnapshot> readings, Instant end) {
+        Instant start = end.minus(ConfidenceScorer.WINDOW);
+        return (int) readings.stream()
+                .filter(r -> r != null && Double.isFinite(r.value()))
+                .filter(r -> r.observedAt().isAfter(start) && !r.observedAt().isAfter(end))
+                .count();
+    }
+
+    /**
+     * Saves a NEW event unless one of the same kind (live or replay) is already open for this region and signal.
+     * The confidence score is computed here by ConfidenceScorer from measured inputs and stored with the event.
+     *
+     * @param scoredAt       the moment staleness is measured against (now for live; detection time for replay)
+     * @param readingCount   valid readings in the 24h window before the event
+     */
+    private Optional<DetectedEvent> saveIfNoneOpen(Deviation d, boolean replay, Instant scoredAt, int readingCount) {
         boolean alreadyOpen = eventRepository
                 .findFirstByRegionAndSignalTypeAndReplayAndStatusIn(d.region(), d.signalType(), replay, OPEN_STATUSES)
                 .isPresent();
@@ -154,10 +176,19 @@ public class DetectionOrchestrator {
         event.setDeviation(d.deviationSize());
         event.setStatus(EventStatus.NEW);
         event.setReplay(replay);
+
+        // source agreement is null until a second source exists (CG-136); the scorer leaves it out
+        ConfidenceInputs inputs = new ConfidenceInputs(
+                Math.max(0, Duration.between(d.timestamp(), scoredAt).toSeconds()),
+                readingCount, d.deviationSize(), null);
+        ConfidenceResult confidence = ConfidenceScorer.score(inputs);
+        event.applyConfidence(inputs, confidence);
+
         DetectedEvent saved = eventRepository.save(event);
 
-        log.info("Created NEW {} event for {}/{} — deviation={}",
-                replay ? "replay" : "live", d.region(), d.signalType(), d.deviationSize());
+        log.info("Created NEW {} event for {}/{} — deviation={} confidence={} ({})",
+                replay ? "replay" : "live", d.region(), d.signalType(), d.deviationSize(),
+                confidence.score(), confidence.level());
         return Optional.of(saved);
     }
 

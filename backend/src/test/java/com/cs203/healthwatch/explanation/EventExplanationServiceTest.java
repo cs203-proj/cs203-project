@@ -205,4 +205,16 @@ class EventExplanationServiceTest {
         assertThat(sent.getValue().readings()).hasSize(12);
         assertThat(sent.getValue().readings().get(11).observedAt()).isEqualTo(Instant.parse("2026-10-18T03:00:00Z"));
     }
+
+    @Test
+    void nonFiniteReadings_neverReachTheAiOrThePrompt() {
+        when(client.explain(any())).thenReturn(ANSWER);
+
+        explain(service(true), hourly(Instant.parse("2026-10-18T03:00:00Z"), 18, Double.NaN, 25, 45, 55, 70));
+
+        ArgumentCaptor<ExplanationContext> sent = ArgumentCaptor.forClass(ExplanationContext.class);
+        verify(client).explain(sent.capture());
+        assertThat(sent.getValue().readings()).hasSize(5);
+        assertThat(ExplanationPrompt.facts(sent.getValue())).doesNotContain("NaN");
+    }
 }

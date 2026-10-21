@@ -14,7 +14,7 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** The AI explanation stored for one detected event (CG-135). See migration V8. */
+/** The AI explanation stored for one detected event (CG-135). See migration V9. */
 @Entity
 @Table(name = "event_explanations")
 @Getter @Setter @NoArgsConstructor

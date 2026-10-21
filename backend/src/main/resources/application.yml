@@ -41,11 +41,11 @@ app:
       z-threshold: 3.0
       consecutive-readings: 3
       max-gap: 90m # ~1.5x the hourly PM2.5 feed interval
-      replay: # POST /demo/replay: the Sept 2026 haze episode in baseline_dev.readings
+      replay: # POST /demo/replay: the Sept 2026 haze episode in public.readings
         region: central
         signal-type: pm25
-        from: "2026-09-03T00:00:00Z"
-        to: "2026-09-05T00:00:00Z" # exclusive
+        from: "2026-09-30T00:00:00Z"
+        to: "2026-10-13T00:00:00Z" # exclusive
   explanation: # CG-135: AI explanation of each new event (Groq free plan)
     enabled: ${AI_EXPLANATION_ENABLED:true}
     api-key: ${GROQ_API_KEY:} # blank: every explanation is stored as FAILED "not configured", events unaffected

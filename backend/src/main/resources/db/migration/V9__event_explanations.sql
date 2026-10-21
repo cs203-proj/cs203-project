@@ -1,5 +1,5 @@
--- V8: AI explanation for each detected event (CG-135).
--- Numbered V8 because V5/V6 (CG-36-audit-trail) and V7 (CG-29-warnings-table) are already taken on other branches.
+-- V9: AI explanation for each detected event (CG-135).
+-- Numbered V9: V5-V8 are already taken (V8 is the event confidence columns, CG-16).
 --
 -- One row per event. A failed AI call is stored too (status FAILED with the error), so an admin can see that an
 -- explanation was attempted and why it is missing. The event row itself is never changed by this feature.

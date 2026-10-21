@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -18,10 +19,12 @@ import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
 import com.cs203.healthwatch.explanation.EventExplanationService;
-import com.cs203.healthwatch.explanation.ExplanationProperties;
+import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -36,25 +39,25 @@ class DetectionOrchestratorExplanationTest {
     private static final BaselineSnapshot BASELINE = new BaselineSnapshot("central", "pm25", 18.0, 5.0);
 
     private EventRepository events;
-    private BaselineDevRepository baselineDev;
+    private BaselineRepository baselines;
+    private ReadingRepository readings;
     private EventExplanationService explanations;
     private DetectionOrchestrator orchestrator;
 
     @BeforeEach
     void setUp() {
         events = mock(EventRepository.class);
-        baselineDev = mock(BaselineDevRepository.class);
+        baselines = mock(BaselineRepository.class);
+        readings = mock(ReadingRepository.class);
         explanations = mock(EventExplanationService.class);
 
         DetectionProperties detection = new DetectionProperties("central", "pm25", "air_quality", 3.0, 3,
                 Duration.ofMinutes(90), new DetectionProperties.Replay("central", "pm25",
                 "2026-09-03T00:00:00Z", "2026-09-05T00:00:00Z"));
-        ExplanationProperties explanation = new ExplanationProperties(true, "key", "m", "http://x",
-                Duration.ofSeconds(5), Duration.ofHours(6), Duration.ofMinutes(60), Duration.ofHours(2), 12);
-        orchestrator = new DetectionOrchestrator(events, mock(ReadingRepository.class), baselineDev, detection,
-                explanations, explanation);
+        orchestrator = new DetectionOrchestrator(events, readings, baselines, detection,
+                Clock.systemUTC(), explanations);
 
-        when(baselineDev.latestBaseline("central", "pm25")).thenReturn(Optional.of(BASELINE));
+        when(baselines.latestBaseline("central", "pm25", "air_quality")).thenReturn(Optional.of(BASELINE));
         when(events.save(any())).thenAnswer(inv -> {
             DetectedEvent e = inv.getArgument(0);
             e.setId(UUID.randomUUID());
@@ -73,8 +76,45 @@ class DetectionOrchestratorExplanationTest {
         return readings;
     }
 
-    private void replayWindowReturns(List<ReadingSnapshot> readings) {
-        when(baselineDev.readingsBetween(eq("central"), eq("pm25"), any(), any())).thenReturn(readings);
+    private static Reading toReading(ReadingSnapshot snapshot) {
+        Reading r = new Reading();
+        r.setRegion(snapshot.region());
+        r.setValue(snapshot.value());
+        r.setObservedAt(snapshot.observedAt().atOffset(ZoneOffset.UTC));
+        return r;
+    }
+
+    private void replayWindowReturns(List<ReadingSnapshot> snapshots) {
+        when(this.readings.findValidBetween(eq("central"), eq("air_quality"), any(), any()))
+                .thenReturn(snapshots.stream().map(DetectionOrchestratorExplanationTest::toReading).toList());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void liveEvent_isExplainedOnce_withTheNewestReadingsLast_andNaNIsNotCounted() {
+        // 24 hourly readings, oldest -> newest, breach (45, 55, 70) at the end; reading #5 has no value (NaN)
+        Instant newest = Instant.parse("2026-10-20T12:00:00Z");
+        List<ReadingSnapshot> oldestFirst = new ArrayList<>();
+        for (int i = 0; i < 24; i++) {
+            double value = i == 21 ? 45 : i == 22 ? 55 : i == 23 ? 70 : i == 5 ? Double.NaN : 18;
+            oldestFirst.add(new ReadingSnapshot("central", "pm25", value, newest.minus(Duration.ofHours(23 - i))));
+        }
+        List<Reading> newestFirst = new ArrayList<>(oldestFirst.stream()
+                .map(DetectionOrchestratorExplanationTest::toReading).toList());
+        java.util.Collections.reverse(newestFirst); // the repository query returns newest first
+        when(readings.findLatestValid(eq("central"), eq("air_quality"), eq(false), any())).thenReturn(newestFirst);
+
+        Optional<DetectedEvent> created = orchestrator.runLiveDetection();
+
+        assertThat(created).isPresent();
+        assertThat(created.get().getConfidenceReadingCount()).isEqualTo(23); // 24 minus the NaN reading
+        ArgumentCaptor<List<ReadingSnapshot>> sent = ArgumentCaptor.forClass(List.class);
+        verify(explanations, times(1)).explainNewEvent(any(DetectedEvent.class), eq(BASELINE), sent.capture(),
+                eq(3.0), eq(3));
+        List<ReadingSnapshot> passed = sent.getValue();
+        assertThat(passed).hasSize(24);
+        assertThat(passed.get(23).observedAt()).isEqualTo(newest); // newest is the tail, as the service expects
+        assertThat(passed.subList(21, 24)).extracting(ReadingSnapshot::value).containsExactly(45.0, 55.0, 70.0);
     }
 
     @SuppressWarnings("unchecked")

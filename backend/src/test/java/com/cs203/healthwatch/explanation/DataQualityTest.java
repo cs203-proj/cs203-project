@@ -76,6 +76,15 @@ class DataQualityTest {
     }
 
     @Test
+    void nonFiniteReadings_areNotCounted() {
+        DataQuality q = assess(hourly(NOW.minus(Duration.ofMinutes(10)), 18, Double.NaN, 25, 40, 55, 70));
+
+        assertThat(q.readingsInWindow()).isEqualTo(5);
+        assertThat(q.complete()).isFalse();
+        assertThat(q.note()).contains("5 of 6");
+    }
+
+    @Test
     void describe_readsNaturally() {
         assertThat(DataQuality.describe(Duration.ofMinutes(1))).isEqualTo("1 minute");
         assertThat(DataQuality.describe(Duration.ofMinutes(45))).isEqualTo("45 minutes");
