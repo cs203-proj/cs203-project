@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.cs203.healthwatch.confidence.ConfidenceLevel;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
@@ -84,6 +85,18 @@ class WarningDraftIntegrationTest {
             assertThat(w.getStatus()).isEqualTo(WarningStatus.PENDING_REVIEW);
             assertThat(w.getWarningText()).contains("What happened:", "Confidence:", "What you should do:");
         });
+    }
+
+    @Test
+    void draftUsesTheConfidenceLevelStoredWithTheEvent() throws Exception {
+        DetectedEvent event = TestEvents.event(9.4, EventStatus.UNDER_REVIEW, "2026-09-24T03:15:00Z");
+        event.setConfidenceLevel(ConfidenceLevel.MEDIUM);
+        event = eventRepository.save(event);
+
+        changeStatus(event.getId(), "CONFIRMED").andExpect(status().isOk());
+
+        assertThat(warningsFor(event.getId())).singleElement()
+                .satisfies(w -> assertThat(w.getWarningText()).contains("Confidence: medium."));
     }
 
     @Test

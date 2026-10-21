@@ -2,6 +2,7 @@ package com.cs203.healthwatch.warnings;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.cs203.healthwatch.confidence.ConfidenceLevel;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventStatus;
 import com.cs203.healthwatch.events.TestEvents;
@@ -37,7 +38,7 @@ class WarningDrafterTest {
 
     @Test
     void draftSaysWhatHappenedTheConfidenceAndOneAction() {
-        WarningDrafter.Draft draft = drafter.draft(pm25Event(9.4), "High");
+        WarningDrafter.Draft draft = drafter.draft(pm25Event(9.4), ConfidenceLevel.HIGH);
 
         assertThat(draft.audience()).isEqualTo("GENERAL_PUBLIC");
         assertThat(draft.severity()).isEqualTo(WarningSeverity.HIGH);
@@ -45,7 +46,7 @@ class WarningDrafterTest {
                 .startsWith("PM2.5 (fine particle pollution) alert for the central region (high severity).")
                 .contains("What happened: PM2.5 (fine particle pollution) readings rose well above normal levels")
                 .contains("detected at 24 Sep 2026, 11:15 AM (Singapore time)")
-                .contains("Confidence: High.")
+                .contains("Confidence: high.")
                 .contains("What you should do: " + WarningDrafter.recommendedAction(WarningSeverity.HIGH));
     }
 

@@ -38,8 +38,7 @@ public class WarningDraftService {
             return Optional.empty();
         }
 
-        // TODO(CG-16): pass the event's confidence level once it is stored with the event
-        WarningDrafter.Draft draft = drafter.draft(event, null);
+        WarningDrafter.Draft draft = drafter.draft(event, event.getConfidenceLevel());
 
         Warning warning = new Warning();
         warning.setEventId(event.getId());

@@ -1,5 +1,6 @@
 package com.cs203.healthwatch.warnings;
 
+import com.cs203.healthwatch.confidence.ConfidenceLevel;
 import com.cs203.healthwatch.events.DetectedEvent;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -32,9 +33,9 @@ public class WarningDrafter {
     }
 
     /**
-     * @param confidenceLevel Low / Medium / High from CG-16, or null while the event has no confidence score yet
+     * @param confidenceLevel the event's confidence band (CG-16), or null for events scored before confidence existed
      */
-    public Draft draft(DetectedEvent event, String confidenceLevel) {
+    public Draft draft(DetectedEvent event, ConfidenceLevel confidenceLevel) {
         WarningSeverity severity = severityFor(event.getDeviation());
         String text = String.format(
                 "%s alert for the %s region (%s severity).%n"
@@ -47,7 +48,7 @@ public class WarningDrafter {
                 severity.name().toLowerCase(Locale.ROOT),
                 signalName(event.getSignalType()),
                 WHEN.format(event.getDetectedAt()),
-                confidenceLevel == null ? "not yet assessed" : confidenceLevel,
+                confidenceLevel == null ? "not yet assessed" : confidenceLevel.name().toLowerCase(Locale.ROOT),
                 recommendedAction(severity));
         return new Draft(GENERAL_PUBLIC, severity, text);
     }

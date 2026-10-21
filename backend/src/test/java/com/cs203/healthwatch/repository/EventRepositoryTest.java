@@ -37,6 +37,30 @@ class EventRepositoryTest {
     }
 
     @Test
+    void confidenceInputsAndScore_areStoredWithTheEvent() {
+        var event = TestEvents.event(4.2, EventStatus.NEW, "2026-09-24T03:00:00Z");
+        var inputs = new com.cs203.healthwatch.confidence.ConfidenceInputs(5400, 20, 4.2, null);
+        event.applyConfidence(inputs, com.cs203.healthwatch.confidence.ConfidenceScorer.score(inputs));
+        em.persistAndFlush(event);
+        em.clear();
+
+        DetectedEvent loaded = eventRepository.findById(event.getId()).orElseThrow();
+
+        assertThat(loaded.getConfidenceScore()).isEqualTo(0.5651);
+        assertThat(loaded.getConfidenceLevel())
+                .isEqualTo(com.cs203.healthwatch.confidence.ConfidenceLevel.MEDIUM);
+        assertThat(loaded.getConfidenceFormulaVersion()).isEqualTo(1);
+        assertThat(loaded.getConfidenceStalenessSeconds()).isEqualTo(5400L);
+        assertThat(loaded.getConfidenceReadingCount()).isEqualTo(20);
+        assertThat(loaded.getConfidenceSourceAgreement()).isNull();
+        // recomputing from the stored inputs gives the stored score
+        var again = com.cs203.healthwatch.confidence.ConfidenceScorer.score(
+                new com.cs203.healthwatch.confidence.ConfidenceInputs(loaded.getConfidenceStalenessSeconds(),
+                        loaded.getConfidenceReadingCount(), loaded.getDeviation(), loaded.getConfidenceSourceAgreement()));
+        assertThat(again.score()).isEqualTo(loaded.getConfidenceScore());
+    }
+
+    @Test
     void sortsByDeviationLargestFirst() {
         persist(3.1, EventStatus.NEW, "2026-09-24T01:00:00Z");
         persist(5.7, EventStatus.UNDER_REVIEW, "2026-09-24T03:00:00Z");

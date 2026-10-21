@@ -200,7 +200,7 @@ public class EventController {
                                 "audience": "GENERAL_PUBLIC",
                                 "severity": "HIGH",
                                 "status": "PENDING_REVIEW",
-                                "warningText": "PM2.5 (fine particle pollution) alert for the central region (high severity).\nWhat happened: PM2.5 (fine particle pollution) readings rose well above normal levels for this area, detected at 24 Sep 2026, 11:15 AM (Singapore time).\nConfidence: not yet assessed.\nWhat you should do: Avoid strenuous outdoor activity and keep windows closed while levels stay high.",
+                                "warningText": "PM2.5 (fine particle pollution) alert for the central region (high severity).\nWhat happened: PM2.5 (fine particle pollution) readings rose well above normal levels for this area, detected at 24 Sep 2026, 11:15 AM (Singapore time).\nConfidence: high.\nWhat you should do: Avoid strenuous outdoor activity and keep windows closed while levels stay high.",
                                 "createdAt": "2026-09-24T06:47:30Z"
                               }
                             ]
