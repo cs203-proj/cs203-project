@@ -34,8 +34,7 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   detection:
-      detection:
-      region: ${PM_SOURCE_REGION:central} # same as pm.source.region, so detection reads what ingestion stores
+      region: ${PM_SOURCE_REGION:central} # region live detection checks
       signal-type: pm25 # what is measured: used to find the baseline and to label events
       source-type: ${PM_SOURCE_TYPE:air_quality} # data_sources.type of the ingested feed, used to find live readings
       z-threshold: 3.0
@@ -74,10 +73,16 @@ ingestion:
     read-timeout: ${INGESTION_HTTP_READ_TIMEOUT:PT10S} # Once connected, how long to wait for the server to actually send back data before giving up.
     max-attempts: ${INGESTION_HTTP_MAX_ATTEMPTS:3} # How many times FetchClient will attempt the whole fetch if it fails, before giving up for this cycle.
     initial-backoff: ${INGESTION_HTTP_INITIAL_BACKOFF:PT2S} # How long to wait before retrying after a failed attempt.
+  backfill:
+    delay-between-days: ${INGESTION_BACKFILL_DELAY:PT2S}   # pause between days; data.gov.sg rate-limits rapid requests
 
 pm:
-  source:
-    url: ${PM_SOURCE_URL:https://api-open.data.gov.sg/v2/real-time/api/pm25}
-    name: ${PM_SOURCE_NAME:datagovsg_pm25}
-    type: ${PM_SOURCE_TYPE:air_quality}
-    region: ${PM_SOURCE_REGION:central}
+  url: ${PM_SOURCE_URL:https://api-open.data.gov.sg/v2/real-time/api/pm25}
+  type: ${PM_SOURCE_TYPE:air_quality}
+  name: ${PM_SOURCE_NAME:datagovsg_pm25}
+  regions:
+     - name: central
+     - name: north
+     - name: south
+     - name: east
+     - name: west

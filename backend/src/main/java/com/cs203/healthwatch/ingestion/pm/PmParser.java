@@ -15,20 +15,18 @@ import org.springframework.stereotype.Service;
 @Service
 public class PmParser {
 
+    // set region as "ALL" if malformed json obtained as a whole (so all regions are malformed)
+    public static final String ALL_REGIONS = "ALL"; 
+
     public List<Reading> parseAll(JsonNode root, String region, UUID sourceId) {
         List<Reading> out = new ArrayList<>();
 
-        int code = root.path("code").asInt(-1);
-        if (code != 0) {
-            out.add(malformed(root, region, sourceId));
+        if (!isValidResponse(root)) {
+            out.add(malformed(root, ALL_REGIONS, sourceId));
             return out;
         }
 
         JsonNode items = root.path("data").path("items");
-
-        if (!items.isArray()) {
-            return List.of(malformed(root, region, sourceId)); // response shape changed
-        }
 
         for (JsonNode item : items) {
             out.add(parse(item, region, sourceId));
@@ -64,7 +62,11 @@ public class PmParser {
         return r;
     }
 
-    private Reading malformed(JsonNode raw, String region, UUID sourceId) {
+    public boolean isValidResponse(JsonNode root) {
+        return root.path("code").asInt(-1) == 0 && root.path("data").path("items").isArray();
+    }
+
+    public Reading malformed(JsonNode raw, String region, UUID sourceId) {
         Reading r = new Reading();
         r.setSourceId(sourceId);
         r.setRegion(region);
