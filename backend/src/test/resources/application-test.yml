@@ -8,8 +8,13 @@ spring:
     driver-class-name: org.h2.Driver
   flyway:
     enabled: false
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:test-schema.sql
   jpa:
     show-sql: false
+    defer-datasource-initialization: true
     hibernate:
       ddl-auto: create-drop
 
