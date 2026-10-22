@@ -25,7 +25,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/backfill")
 @RequiredArgsConstructor
-@Tag(name = "Backfill", description = "Maintenance operations (admin only)")
+@Tag(name = "Backfill", description = "Load historical readings into public.readings (admin only)")
 public class BackfillController {
 
     private final PmBackfillService backfillService;
@@ -37,7 +37,8 @@ public class BackfillController {
                     + "readings for every configured region through the normal ingestion path. At most "
                     + "${ingestion.backfill.max-days} days per call; call again for longer ranges. Safe to rerun: "
                     + "readings already stored are counted as duplicates and skipped. Days that could not be "
-                    + "fetched are listed in failedDays.")
+                    + "fetched or stored completely (fetch failed, unusable response, or rows that failed to save) "
+                    + "are listed in failedDays; rerun those days.")
     @ApiResponse(responseCode = "200", description = "Backfill finished (check failedDays)",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(implementation = BackfillResponse.class),

@@ -43,6 +43,7 @@ public class PmBackfillService {
     private final ObjectMapper objectMapper;
     private final PmSourceProperties sourceProperties;
     private final PmIngestionService ingestion;
+    private final PmParser parser;
     private final BackfillProperties backfillProperties;
     private final Clock clock;
 
@@ -55,6 +56,11 @@ public class PmBackfillService {
         List<LocalDate> failedDays = new ArrayList<>();
 
         for (LocalDate day = from; !day.isAfter(to); day = day.plusDays(1)) {
+            if (Thread.currentThread().isInterrupted()) {
+                log.warn("backfill interrupted; {}..{} not fetched", day, to);
+                day.datesUntil(to.plusDays(1)).forEach(failedDays::add);
+                break;
+            }
             DayResult result = backfillDay(day);
             total = total.plus(result.ingested());
             pages += result.pages();
@@ -66,16 +72,21 @@ public class PmBackfillService {
             }
         }
 
-        log.info("backfill {}..{} done: {} pages, {} saved, {} duplicates, {} malformed, {} failed days",
-                from, to, pages, total.saved(), total.duplicates(), total.malformed(), failedDays.size());
+        log.info("backfill {}..{} done: {} pages, {} saved, {} duplicates, {} malformed, {} failed rows, failed days {}",
+                from, to, pages, total.saved(), total.duplicates(), total.malformed(), total.failed(), failedDays);
         return new BackfillResponse(from, to, (int) ChronoUnit.DAYS.between(from, to) + 1, pages,
                 total.saved(), total.malformed(), total.duplicates(), total.failed(), failedDays);
     }
 
+    /**
+     * Fetches and stores one day. The day is complete only if every page was fetched, every page was a usable
+     * response, and every reading was stored (new or duplicate). Anything else puts the day in failedDays.
+     */
     private DayResult backfillDay(LocalDate day) {
         IngestResult total = IngestResult.EMPTY;
         String token = null;
         int pages = 0;
+        boolean allStored = true;
         do {
             String json = fetchClient.fetch(urlFor(day, token));
             if (json == null) {
@@ -89,8 +100,15 @@ public class PmBackfillService {
                 log.error("backfill: response for {} is not JSON: {}", day, e.getMessage());
                 return new DayResult(total, pages, false);
             }
-            total = total.plus(ingestion.ingest(root));
+            IngestResult ingested = ingestion.ingest(root);   // an unusable response is still stored, flagged malformed
+            total = total.plus(ingested);
             pages++;
+            if (!parser.isValidResponse(root)) {   // already logged by ingest()
+                return new DayResult(total, pages, false);
+            }
+            if (ingested.failed() > 0) {            // each failed row already logged by ingest()
+                allStored = false;
+            }
             token = nextToken(root);
         } while (token != null && pages < backfillProperties.maxPagesPerDay());
 
@@ -98,7 +116,7 @@ public class PmBackfillService {
             log.warn("backfill: stopped {} after {} pages; more pages were reported", day, pages);
             return new DayResult(total, pages, false);
         }
-        return new DayResult(total, pages, true);
+        return new DayResult(total, pages, allStored);
     }
 
     private String urlFor(LocalDate day, String token) {

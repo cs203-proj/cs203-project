@@ -8,6 +8,7 @@ import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 
+import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -35,6 +36,7 @@ public class PmIngestionService implements IngestionService {
     private final ObjectMapper objectMapper;
     private final PmSourceProperties sourceProperties;
     private final DataSourceRegistry dataSourceRegistry;
+    private final Clock clock;
 
     private enum SaveOutcome {
         SAVED, DUPLICATE, FAILED
@@ -113,7 +115,7 @@ public class PmIngestionService implements IngestionService {
     }
 
     private SaveOutcome save(Reading r) {
-        r.setIngestedAt(OffsetDateTime.now());
+        r.setIngestedAt(OffsetDateTime.now(clock));
         try {
             repo.save(r);
             return SaveOutcome.SAVED;

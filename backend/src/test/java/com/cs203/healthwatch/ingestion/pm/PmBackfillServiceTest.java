@@ -65,12 +65,16 @@ class PmBackfillServiceTest {
     }
 
     private PmBackfillService backfillWith(Clock clock) {
+        return backfillWith(clock, PROPS);
+    }
+
+    private PmBackfillService backfillWith(Clock clock, BackfillProperties backfillProps) {
         ObjectMapper mapper = new ObjectMapper();
         PmSourceProperties props = new PmSourceProperties("datagovsg_pm25", URL, "air_quality",
                 List.of(new Region("central"), new Region("west")));
-        PmIngestionService ingestion =
-                new PmIngestionService(fetchClient, new PmParser(), repo, mapper, props, registry);
-        return new PmBackfillService(fetchClient, mapper, props, ingestion, PROPS, clock);
+        PmParser parser = new PmParser();
+        PmIngestionService ingestion = new PmIngestionService(fetchClient, parser, repo, mapper, props, registry, clock);
+        return new PmBackfillService(fetchClient, mapper, props, ingestion, parser, backfillProps, clock);
     }
 
     /** One page for a day: two hourly items with central and west values, optionally pointing to a next page. */
@@ -164,7 +168,7 @@ class PmBackfillServiceTest {
     }
 
     @Test
-    void unusableResponseForADay_isStoredOnceAsMalformed() {
+    void unusableResponseForADay_isStoredOnceAsMalformed_andTheDayIsReportedAsFailed() {
         sourceResolves();
         dayReturns("2026-09-01", """
                 {"code":1,"errorMsg":"no data for date"}
@@ -174,6 +178,7 @@ class PmBackfillServiceTest {
 
         assertThat(result.saved()).isEqualTo(1);
         assertThat(result.malformed()).isEqualTo(1);
+        assertThat(result.failedDays()).containsExactly(LocalDate.parse("2026-09-01"));
         verify(repo, times(1)).save(any(Reading.class));
     }
 

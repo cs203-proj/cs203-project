@@ -17,9 +17,14 @@ import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -39,6 +44,8 @@ class PmIngestionServiceTest {
     private static final String SOURCE_NAME = "datagovsg_pm25";
     private static final String SOURCE_TYPE = "air_quality";
     private static final UUID SOURCE_ID = UUID.fromString("5f1e2d3c-4b5a-4968-8776-655443322110");
+    private static final Instant NOW = Instant.parse("2026-09-27T02:05:00Z");
+    private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     /** Two hourly items, each with a value for every region the API reports. */
     private static final String ALL_REGIONS_RESPONSE = """
@@ -57,7 +64,7 @@ class PmIngestionServiceTest {
     private PmIngestionService service(PmParser parser, String... regions) {
         List<Region> regionList = Arrays.stream(regions).map(Region::new).toList();
         PmSourceProperties props = new PmSourceProperties(SOURCE_NAME, URL, SOURCE_TYPE, regionList);
-        return new PmIngestionService(fetchClient, parser, repo, new ObjectMapper(), props, registry);
+        return new PmIngestionService(fetchClient, parser, repo, new ObjectMapper(), props, registry, CLOCK);
     }
 
     private PmIngestionService service(String... regions) {
@@ -129,13 +136,13 @@ class PmIngestionServiceTest {
     }
 
     @Test
-    void savedReadingsCarryIngestedAt() {
+    void savedReadingsCarryIngestedAt_fromTheInjectedClock() {
         feedReturns(ALL_REGIONS_RESPONSE);
         sourceResolves();
 
         service("central").ingestLatest();
 
-        assertThat(savedReadings(2)).allSatisfy(r -> assertThat(r.getIngestedAt()).isNotNull());
+        assertThat(savedReadings(2)).allSatisfy(r -> assertThat(r.getIngestedAt().toInstant()).isEqualTo(NOW));
     }
 
     @Test
