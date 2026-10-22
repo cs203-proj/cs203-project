@@ -7,6 +7,7 @@ import com.cs203.healthwatch.ingestion.IngestResult;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +37,8 @@ public class PmBackfillService {
 
     public static final int MAX_DAYS = 31;
     static final int MAX_PAGES_PER_DAY = 20;
+    /** data.gov.sg dates its readings in Singapore time, so "today" is the SGT date. */
+    private static final ZoneId SINGAPORE = ZoneId.of("Asia/Singapore");
 
     private final FetchClient fetchClient;
     private final ObjectMapper objectMapper;
@@ -144,7 +147,7 @@ public class PmBackfillService {
         if (from.isAfter(to)) {
             throw new BadRequestException("from must be on or before to");
         }
-        if (to.isAfter(LocalDate.now(clock))) {
+        if (to.isAfter(LocalDate.now(clock.withZone(SINGAPORE)))) {
             throw new BadRequestException("to cannot be in the future");
         }
         long days = ChronoUnit.DAYS.between(from, to) + 1;

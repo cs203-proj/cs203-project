@@ -19,13 +19,5 @@ public class IngestionClientConfig {
         factory.setReadTimeout(props.readTimeout());
         return builder.requestFactory(factory).build();
     }
-
-    /**
-     * Singapore time, which is how data.gov.sg dates its readings. Injected rather than calling now() directly,
-     * so tests can fix "today".
-     */
-    @Bean
-    public Clock clock() {
-        return Clock.system(ZoneId.of("Asia/Singapore"));
-    }
+    
 }
