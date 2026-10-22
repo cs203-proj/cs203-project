@@ -36,15 +36,13 @@ class WarningAuditEndpointTest {
     private PasswordEncoder passwordEncoder;
     @BeforeEach
     void createUsers() {
-        jdbc.update("delete from warnings");
-        jdbc.update("delete from events");
-        jdbc.update("delete from users");
-        userRepository.save(new User(
-            "admin", passwordEncoder.encode("admin"), "admin"));
-    userRepository.save(new User(
-            "viewer", passwordEncoder.encode("viewer"), "viewer"));
-        adminToken = jwtService.generateToken("admin", "admin");
-        viewerToken = jwtService.generateToken("viewer", "viewer");
+       String suffix = UUID.randomUUID().toString().substring(0, 8);
+    String adminName = "audit-admin-" + suffix;
+    String viewerName = "audit-viewer-" + suffix;
+    userRepository.save(new User(adminName, "hash", "admin"));
+    userRepository.save(new User(viewerName, "hash", "viewer"));
+    adminToken = jwtService.generateToken(adminName, "admin");
+    viewerToken = jwtService.generateToken(viewerName, "viewer");
     }
 
     private void insertEntry(UUID warningId, String action, Instant at) {
