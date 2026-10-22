@@ -1,7 +1,8 @@
-
 package com.cs203.healthwatch.ingestion.config;
 
 import java.net.http.HttpClient;
+import java.time.Clock;
+import java.time.ZoneId;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,4 +19,5 @@ public class IngestionClientConfig {
         factory.setReadTimeout(props.readTimeout());
         return builder.requestFactory(factory).build();
     }
+    
 }
