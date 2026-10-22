@@ -1,5 +1,6 @@
 package com.cs203.healthwatch.warnings;
 
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -23,4 +24,8 @@ public interface WarningRepository extends JpaRepository<Warning, UUID> {
     @Query(value = "select w from Warning w where w.status = :status" + QUEUE_ORDER,
             countQuery = "select count(w) from Warning w where w.status = :status")
     Page<Warning> findQueue(WarningStatus status, Pageable page);
+
+    boolean existsByEventIdAndAudience(UUID eventId, String audience);
+
+    List<Warning> findByEventIdOrderByCreatedAtAscIdAsc(UUID eventId);
 }
