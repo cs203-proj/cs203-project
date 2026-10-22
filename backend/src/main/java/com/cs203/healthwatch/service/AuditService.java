@@ -1,5 +1,6 @@
 package com.cs203.healthwatch.service;
 
+import com.cs203.healthwatch.common.exception.ResourceNotFoundException;
 import com.cs203.healthwatch.dto.WarningAuditEntryResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -7,6 +8,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.OffsetDateTime;
 import java.util.*;
+
+import org.springframework.data.crossstore.ChangeSetPersister.NotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -59,7 +62,11 @@ public class AuditService {
         /** Full action history of one warning, oldest first. Ties on created_at are broken by id. */
     @Transactional(readOnly = true)
     public List<WarningAuditEntryResponse> trail(UUID warningId) {
-        // TODO(CG-21): once public.warnings exists, throw a 404 here when the warning does not exist.
+        Integer found = jdbc.queryForObject(
+            "SELECT count(*) FROM public.warnings WHERE id = ?", Integer.class, warningId);
+            if (found == null || found == 0) {
+                throw new ResourceNotFoundException("Warning " + warningId + " not found"); // use your project's not-found exception
+            }
         return jdbc.query("""
                         SELECT id, actor, action, before::text AS before, after::text AS after, created_at
                         FROM public.warning_audit_log
