@@ -25,7 +25,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/backfill")
 @RequiredArgsConstructor
-@Tag(name = "Admin", description = "Maintenance operations (admin only)")
+@Tag(name = "Backfill", description = "Maintenance operations (admin only)")
 public class BackfillController {
 
     private final PmBackfillService backfillService;
