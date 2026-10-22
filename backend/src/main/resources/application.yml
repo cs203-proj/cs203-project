@@ -74,7 +74,9 @@ ingestion:
     max-attempts: ${INGESTION_HTTP_MAX_ATTEMPTS:3} # How many times FetchClient will attempt the whole fetch if it fails, before giving up for this cycle.
     initial-backoff: ${INGESTION_HTTP_INITIAL_BACKOFF:PT2S} # How long to wait before retrying after a failed attempt.
   backfill:
-    delay-between-days: ${INGESTION_BACKFILL_DELAY:PT2S}   # pause between days; data.gov.sg rate-limits rapid requests
+    delay-between-days: ${INGESTION_BACKFILL_DELAY:PT2S} # pause between days; data.gov.sg rate-limits rapid requests
+    max-days: ${INGESTION_BACKFILL_MAX_DAYS:31} # largest range per request: bounds how long one call runs and how many data.gov.sg calls it makes
+    max-pages-per-day: ${INGESTION_BACKFILL_MAX_PAGES:20}
 
 pm:
   url: ${PM_SOURCE_URL:https://api-open.data.gov.sg/v2/real-time/api/pm25}

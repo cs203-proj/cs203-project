@@ -20,23 +20,22 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import lombok.RequiredArgsConstructor;
+
 @RestController
 @RequestMapping("/backfill")
+@RequiredArgsConstructor
 @Tag(name = "Admin", description = "Maintenance operations (admin only)")
 public class BackfillController {
 
     private final PmBackfillService backfillService;
-
-    public BackfillController(PmBackfillService backfillService) {
-        this.backfillService = backfillService;
-    }
 
     @PostMapping("/pm25")
     @Operation(
             summary = "Backfill historical PM2.5 readings",
             description = "Fetches every day in the range (SGT dates, both inclusive) from data.gov.sg and stores "
                     + "readings for every configured region through the normal ingestion path. At most "
-                    + PmBackfillService.MAX_DAYS + " days per call; call again for longer ranges. Safe to rerun: "
+                    + "${ingestion.backfill.max-days} days per call; call again for longer ranges. Safe to rerun: "
                     + "readings already stored are counted as duplicates and skipped. Days that could not be "
                     + "fetched are listed in failedDays.")
     @ApiResponse(responseCode = "200", description = "Backfill finished (check failedDays)",
@@ -56,7 +55,7 @@ public class BackfillController {
                             }
                             """)))
     @ApiResponse(responseCode = "400", description = "Missing or invalid dates, from after to, a future date, "
-            + "or more than " + PmBackfillService.MAX_DAYS + " days",
+            + "or more than ${ingestion.backfill.max-days} days",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(implementation = ApiErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired token", content = @Content)
