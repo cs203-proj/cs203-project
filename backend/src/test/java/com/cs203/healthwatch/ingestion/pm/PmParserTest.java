@@ -256,7 +256,8 @@ class PmParserTest {
         assertThat(readings).hasSize(1);
         Reading r = readings.get(0);
         assertThat(r.isMalformed()).isTrue();
-        assertThat(r.getRegion()).isEqualTo(REGION);
+        // a response-level failure is not tied to one region (CG-136)
+        assertThat(r.getRegion()).isEqualTo(PmParser.ALL_REGIONS);
         assertThat(r.getSourceId()).isEqualTo(SOURCE_ID);
         assertThat(r.getRawPayload()).isEqualTo(root.toString());
         assertThat(r.getObservedAt()).isNull();
@@ -363,5 +364,123 @@ class PmParserTest {
             assertThat(r.getSourceId()).isEqualTo(SOURCE_ID);
             assertThat(r.getRegion()).isEqualTo(REGION);
         });
+    }
+
+    // ---------------------------------------------------------------
+    // parseAll(): one region out of a multi-region response (CG-136)
+    // ---------------------------------------------------------------
+
+    private static final String FIVE_REGIONS = """
+        {
+          "code": 0,
+          "data": {
+            "items": [
+              {
+                "timestamp": "2024-01-01T08:00:00+08:00",
+                "readings": { "pm25_one_hourly":
+                  { "central": 10, "north": 20, "south": 30, "east": 40, "west": 50 } }
+              }
+            ]
+          }
+        }
+        """;
+
+    @Test
+    void parseAllTakesOnlyTheRequestedRegionsValue() {
+        JsonNode root = json(FIVE_REGIONS);
+
+        List<Reading> west = parser.parseAll(root, "west", SOURCE_ID);
+        List<Reading> north = parser.parseAll(root, "north", SOURCE_ID);
+
+        assertThat(west).singleElement().satisfies(r -> {
+            assertThat(r.getRegion()).isEqualTo("west");
+            assertThat(r.getValue()).isEqualTo(50.0);
+            assertThat(r.isMalformed()).isFalse();
+        });
+        assertThat(north).singleElement().satisfies(r -> assertThat(r.getValue()).isEqualTo(20.0));
+    }
+
+    @Test
+    void parsingOneRegionTwiceFromTheSameResponseGivesTheSameReading() {
+        // the service parses one shared JsonNode once per region, so parsing must not change it
+        JsonNode root = json(FIVE_REGIONS);
+
+        Reading first = parser.parseAll(root, "central", SOURCE_ID).get(0);
+        parser.parseAll(root, "west", SOURCE_ID);
+        Reading again = parser.parseAll(root, "central", SOURCE_ID).get(0);
+
+        assertThat(again.getValue()).isEqualTo(first.getValue());
+        assertThat(again.getObservedAt()).isEqualTo(first.getObservedAt());
+        assertThat(root).isEqualTo(json(FIVE_REGIONS));
+    }
+
+    @Test
+    void parseAllOnAnInvalidResponseIgnoresTheRequestedRegion() {
+        JsonNode root = json("""
+            { "code": 1, "data": { "items": [] } }
+            """);
+
+        assertThat(parser.parseAll(root, "west", SOURCE_ID))
+                .singleElement()
+                .satisfies(r -> assertThat(r.getRegion()).isEqualTo(PmParser.ALL_REGIONS));
+    }
+
+    // ---------------------------------------------------------------
+    // isValidResponse(): checked once per cycle, before any region
+    // ---------------------------------------------------------------
+
+    @Test
+    void isValidResponseAcceptsCodeZeroWithAnItemsArray() {
+        assertThat(parser.isValidResponse(json("""
+            { "code": 0, "data": { "items": [] } }
+            """))).isTrue();
+        assertThat(parser.isValidResponse(json(FIVE_REGIONS))).isTrue();
+    }
+
+    @Test
+    void isValidResponseRejectsNonZeroCode() {
+        assertThat(parser.isValidResponse(json("""
+            { "code": 1, "data": { "items": [] } }
+            """))).isFalse();
+    }
+
+    @Test
+    void isValidResponseRejectsMissingCode() {
+        assertThat(parser.isValidResponse(json("""
+            { "data": { "items": [] } }
+            """))).isFalse();
+    }
+
+    @Test
+    void isValidResponseRejectsMissingOrNonArrayItems() {
+        assertThat(parser.isValidResponse(json("""
+            { "code": 0 }
+            """))).isFalse();
+        assertThat(parser.isValidResponse(json("""
+            { "code": 0, "data": {} }
+            """))).isFalse();
+        assertThat(parser.isValidResponse(json("""
+            { "code": 0, "data": { "items": "oops" } }
+            """))).isFalse();
+    }
+
+    // ---------------------------------------------------------------
+    // malformed(): keeps the raw payload, never a value or timestamp
+    // ---------------------------------------------------------------
+
+    @Test
+    void malformedKeepsRawPayloadSourceAndRegionOnly() {
+        JsonNode root = json("""
+            { "code": 1, "errorMsg": "upstream unavailable" }
+            """);
+
+        Reading r = parser.malformed(root, PmParser.ALL_REGIONS, SOURCE_ID);
+
+        assertThat(r.isMalformed()).isTrue();
+        assertThat(r.getRegion()).isEqualTo(PmParser.ALL_REGIONS);
+        assertThat(r.getSourceId()).isEqualTo(SOURCE_ID);
+        assertThat(r.getRawPayload()).isEqualTo(root.toString());
+        assertThat(r.getValue()).isNull();
+        assertThat(r.getObservedAt()).isNull();
     }
 }
