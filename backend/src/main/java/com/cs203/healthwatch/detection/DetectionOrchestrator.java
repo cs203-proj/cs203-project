@@ -7,6 +7,7 @@ import com.cs203.healthwatch.detection.ReplayResult.Outcome;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
+import com.cs203.healthwatch.explanation.EventExplanationService;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import java.time.Clock;
 import java.time.Duration;
@@ -34,6 +35,7 @@ public class DetectionOrchestrator {
     private final BaselineRepository baselineRepository;
     private final DetectionProperties config;
     private final Clock clock;
+    private final EventExplanationService explanationService;
 
     /**
      * Live detection, run after every ingestion pull: the latest real readings in public.readings, compared with
@@ -59,9 +61,13 @@ public class DetectionOrchestrator {
         Collections.reverse(recent);
 
         Instant now = clock.instant();
-        return DeviationDetector.detect(
+        Optional<DetectedEvent> created = DeviationDetector.detect(
                         baseline, recent, config.zThreshold(), config.consecutiveReadings(), config.maxGap())
                 .flatMap(d -> saveIfNoneOpen(d, false, now, countInWindow(recent, d.timestamp())));
+
+        // CG-135: explain the new event. The event is already saved, so nothing here can undo or block it.
+        created.ifPresent(event -> explain(event, baseline.get(), recent));
+        return created;
     }
 
     /**
@@ -99,11 +105,28 @@ public class DetectionOrchestrator {
         Deviation found = deviation.get();
         int inWindow = countInWindow(readings, found.timestamp());
         return saveIfNoneOpen(found, true, found.timestamp(), inWindow)
+                .map(event -> {
+                    // CG-135: explain using the replay readings up to the detection point, as a live run would have
+                    explain(event, baseline.get(), readings.stream()
+                            .filter(r -> !r.observedAt().isAfter(found.timestamp()))
+                            .toList());
+                    return event;
+                })
                 .map(event -> new ReplayResult(Outcome.CREATED, "Replay event created",
                         readings.size(), baseline.get(), event))
                 .orElseGet(() -> new ReplayResult(Outcome.ALREADY_OPEN,
                         "A replay event is already open for this region and signal; dismiss it to replay again",
                         readings.size(), baseline.get(), null));
+    }
+
+    /** Runs the AI explanation for a new event. Any failure is logged and swallowed: detection must carry on. */
+    private void explain(DetectedEvent event, BaselineSnapshot baseline, List<ReadingSnapshot> readings) {
+        try {
+            explanationService.explainNewEvent(event, baseline, readings, config.zThreshold(),
+                    config.consecutiveReadings());
+        } catch (Exception e) {
+            log.error("Explanation step failed for event {}; event stays NEW: {}", event.getId(), e.getMessage(), e);
+        }
     }
 
     private Optional<BaselineSnapshot> usableBaseline(String region, String signalType) {
