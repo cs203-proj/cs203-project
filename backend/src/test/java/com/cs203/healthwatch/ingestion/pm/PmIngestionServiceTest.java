@@ -10,16 +10,27 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 
 import com.cs203.healthwatch.ingestion.FetchClient;
+import com.cs203.healthwatch.ingestion.IngestResult;
 import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.sql.SQLException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -39,6 +50,8 @@ class PmIngestionServiceTest {
     private static final String SOURCE_NAME = "datagovsg_pm25";
     private static final String SOURCE_TYPE = "air_quality";
     private static final UUID SOURCE_ID = UUID.fromString("5f1e2d3c-4b5a-4968-8776-655443322110");
+    private static final Instant NOW = Instant.parse("2026-09-27T02:05:00Z");
+    private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     /** Two hourly items, each with a value for every region the API reports. */
     private static final String ALL_REGIONS_RESPONSE = """
@@ -57,7 +70,7 @@ class PmIngestionServiceTest {
     private PmIngestionService service(PmParser parser, String... regions) {
         List<Region> regionList = Arrays.stream(regions).map(Region::new).toList();
         PmSourceProperties props = new PmSourceProperties(SOURCE_NAME, URL, SOURCE_TYPE, regionList);
-        return new PmIngestionService(fetchClient, parser, repo, new ObjectMapper(), props, registry);
+        return new PmIngestionService(fetchClient, parser, repo, new ObjectMapper(), props, registry, CLOCK);
     }
 
     private PmIngestionService service(String... regions) {
@@ -129,13 +142,13 @@ class PmIngestionServiceTest {
     }
 
     @Test
-    void savedReadingsCarryIngestedAt() {
+    void savedReadingsCarryIngestedAt_fromTheInjectedClock() {
         feedReturns(ALL_REGIONS_RESPONSE);
         sourceResolves();
 
         service("central").ingestLatest();
 
-        assertThat(savedReadings(2)).allSatisfy(r -> assertThat(r.getIngestedAt()).isNotNull());
+        assertThat(savedReadings(2)).allSatisfy(r -> assertThat(r.getIngestedAt().toInstant()).isEqualTo(NOW));
     }
 
     @Test
@@ -254,5 +267,110 @@ class PmIngestionServiceTest {
         service("central", "west").ingestLatest();
 
         savedReadings(4);
+    }
+
+    // ------------------------------------------------------------------ save rejected by the database
+    // One partition per outcome: another constraint (failed), same hour already valid (duplicate),
+    // same hour stored malformed and now valid (replaced), incoming reading itself malformed (duplicate).
+
+    private static final OffsetDateTime NINE_AM = OffsetDateTime.parse("2026-09-27T09:00:00+08:00");
+
+    /** One hourly item with a valid central value. */
+    private static final String ONE_CENTRAL_READING = """
+            {"code":0,"data":{"items":[
+              {"timestamp":"2026-09-27T09:00:00+08:00","readings":{"pm25_one_hourly":{"central":10}}}
+            ]}}
+            """;
+
+    /** What Spring throws for a constraint failure: the JDBC SQLException, with its SQLState, is the cause. */
+    private static DataIntegrityViolationException constraintViolation(String sqlState) {
+        return new DataIntegrityViolationException("constraint violated",
+                new SQLException("constraint violated", sqlState));
+    }
+
+    private static Reading storedReading(boolean malformed, Double value) {
+        Reading r = new Reading();
+        r.setSourceId(SOURCE_ID);
+        r.setRegion("central");
+        r.setObservedAt(NINE_AM);
+        r.setMalformed(malformed);
+        r.setValue(value);
+        return r;
+    }
+
+    @Test
+    @DisplayName("A NOT NULL or foreign-key failure is counted as failed, not hidden as a duplicate")
+    void ingest_ShouldCountFailed_WhenAnotherConstraintIsViolated() throws Exception {
+        // Arrange
+        sourceResolves();
+        when(repo.save(any(Reading.class))).thenThrow(constraintViolation("23502")); // not_null_violation
+
+        // Act
+        IngestResult result = service("central").ingest(new ObjectMapper().readTree(ONE_CENTRAL_READING));
+
+        // Assert
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.duplicates()).isZero();
+        verify(repo, never()).findBySourceIdAndRegionAndObservedAt(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("A reading whose hour is already stored as valid is skipped as a duplicate")
+    void ingest_ShouldCountDuplicate_WhenSameHourIsAlreadyStoredValid() throws Exception {
+        // Arrange
+        sourceResolves();
+        when(repo.save(any(Reading.class))).thenThrow(constraintViolation("23505")); // unique_violation
+        when(repo.findBySourceIdAndRegionAndObservedAt(eq(SOURCE_ID), eq("central"), any()))
+                .thenReturn(Optional.of(storedReading(false, 10.0)));
+
+        // Act
+        IngestResult result = service("central").ingest(new ObjectMapper().readTree(ONE_CENTRAL_READING));
+
+        // Assert
+        assertThat(result.duplicates()).isEqualTo(1);
+        assertThat(result.saved()).isZero();
+        verify(repo, times(1)).save(any(Reading.class)); // nothing replaced
+    }
+
+    @Test
+    @DisplayName("A valid value replaces the malformed row stored earlier for the same hour")
+    void ingest_ShouldReplaceMalformedRow_WhenValidValueArrivesForSameHour() throws Exception {
+        // Arrange
+        sourceResolves();
+        Reading malformedRow = storedReading(true, null);
+        when(repo.save(any(Reading.class)))
+                .thenThrow(constraintViolation("23505"))
+                .thenAnswer(inv -> inv.getArgument(0));
+        when(repo.findBySourceIdAndRegionAndObservedAt(eq(SOURCE_ID), eq("central"), any()))
+                .thenReturn(Optional.of(malformedRow));
+
+        // Act
+        IngestResult result = service("central").ingest(new ObjectMapper().readTree(ONE_CENTRAL_READING));
+
+        // Assert
+        assertThat(result.saved()).isEqualTo(1);
+        assertThat(result.duplicates()).isZero();
+        assertThat(malformedRow.isMalformed()).isFalse();
+        assertThat(malformedRow.getValue()).isEqualTo(10.0);
+        verify(repo).save(malformedRow);
+    }
+
+    @Test
+    @DisplayName("A malformed reading for an hour already stored is a duplicate and never replaces anything")
+    void ingest_ShouldCountDuplicate_WhenIncomingReadingIsMalformed() throws Exception {
+        // Arrange: central is missing from the item, so the reading is malformed but keeps its timestamp
+        sourceResolves();
+        when(repo.save(any(Reading.class))).thenThrow(constraintViolation("23505"));
+
+        // Act
+        IngestResult result = service("central").ingest(new ObjectMapper().readTree("""
+                {"code":0,"data":{"items":[
+                  {"timestamp":"2026-09-27T09:00:00+08:00","readings":{"pm25_one_hourly":{"north":20}}}
+                ]}}
+                """));
+
+        // Assert
+        assertThat(result.duplicates()).isEqualTo(1);
+        verify(repo, never()).findBySourceIdAndRegionAndObservedAt(any(), any(), any());
     }
 }
