@@ -5,6 +5,7 @@ import com.cs203.healthwatch.dto.WarningAuditEntryResponse;
 import com.cs203.healthwatch.dto.WarningListResponse;
 import com.cs203.healthwatch.service.AuditService;
 import com.cs203.healthwatch.service.WarningService;
+import com.cs203.healthwatch.warnings.WarningStatus;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -48,7 +49,8 @@ public class WarningController {
     @Operation(
             summary = "Warning review queue",
             description = "Returns warnings sorted by severity (CRITICAL, HIGH, MEDIUM, LOW), then by age with the "
-                    + "oldest first, so the most serious warning that has waited longest is at the top. Use "
+                    + "oldest first, so the most serious warning that has waited longest is at the top. "
+                    + "Age is how long the warning has been in the queue (createdAt). Use "
                     + "status=PENDING_REVIEW for the review queue. Results are paged with limit and offset.")
     @ApiResponse(responseCode = "200", description = "Warnings returned (an empty list if none match)",
             content = @Content(mediaType = "application/json",
@@ -95,8 +97,9 @@ public class WarningController {
     @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired token", content = @Content)
     @ApiResponse(responseCode = "403", description = "Token is valid but the user is not an admin", content = @Content)
     public WarningListResponse queue(
-            @Parameter(description = "Only return warnings with this status: PENDING_REVIEW, APPROVED or SUPPRESSED "
-                    + "(case-insensitive). Omit to return all statuses.", example = "PENDING_REVIEW")
+            @Parameter(description = "Only return warnings with this status (case-insensitive). Omit to return "
+                    + "all statuses.", example = "PENDING_REVIEW",
+                    schema = @Schema(implementation = WarningStatus.class))
             @RequestParam(required = false) String status,
             @Parameter(description = "Maximum number of warnings to return (1-200)", example = "50")
             @RequestParam(defaultValue = "" + WarningService.DEFAULT_LIMIT) int limit,

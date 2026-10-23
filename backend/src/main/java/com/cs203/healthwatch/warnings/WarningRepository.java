@@ -15,7 +15,8 @@ public interface WarningRepository extends JpaRepository<Warning, UUID> {
             + " when com.cs203.healthwatch.warnings.WarningSeverity.CRITICAL then 0"
             + " when com.cs203.healthwatch.warnings.WarningSeverity.HIGH then 1"
             + " when com.cs203.healthwatch.warnings.WarningSeverity.MEDIUM then 2"
-            + " else 3 end, w.createdAt asc, w.id asc";
+            + " when com.cs203.healthwatch.warnings.WarningSeverity.LOW then 3"
+            + " else -1 end, w.createdAt asc, w.id asc";
 
     @Query(value = "select w from Warning w" + QUEUE_ORDER,
             countQuery = "select count(w) from Warning w")
