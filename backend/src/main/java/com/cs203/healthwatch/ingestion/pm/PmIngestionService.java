@@ -8,9 +8,11 @@ import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -37,6 +39,9 @@ public class PmIngestionService implements IngestionService {
     private final PmSourceProperties sourceProperties;
     private final DataSourceRegistry dataSourceRegistry;
     private final Clock clock;
+
+    /** SQLState for a unique-constraint violation (Postgres and H2). */
+    private static final String UNIQUE_VIOLATION = "23505";
 
     private enum SaveOutcome {
         SAVED, DUPLICATE, FAILED
@@ -89,6 +94,13 @@ public class PmIngestionService implements IngestionService {
 
         if (readings.isEmpty()) {
             log.info("response contained no items for region {}", region.name());
+        } else {
+            List<String> inFeed = parser.regionsInFeed(root);
+            if (!inFeed.contains(region.name())) {
+                log.warn("region '{}' is configured in pm.regions but is not in the {} payload (feed has {}); "
+                                + "its readings are stored as malformed until the config or the feed is fixed",
+                        region.name(), sourceProperties.name(), inFeed);
+            }
         }
 
         return tally(readings);
@@ -120,13 +132,57 @@ public class PmIngestionService implements IngestionService {
             repo.save(r);
             return SaveOutcome.SAVED;
         } catch (DataIntegrityViolationException e) {
-            // Only unique constraint right now is (source_id, region, observed_at), so any
-            // violation here means this exact reading was already stored.
-            log.info("duplicate reading skipped: {} {}", r.getRegion(), r.getObservedAt());
-            return SaveOutcome.DUPLICATE;
+            if (isOtherConstraintViolation(e)) {
+                // e.g. NOT NULL or foreign key: a real failure, not a reading we already have
+                log.error("failed to save reading {} {}: {}", r.getRegion(), r.getObservedAt(),
+                        e.getMostSpecificCause().getMessage(), e);
+                return SaveOutcome.FAILED;
+            }
+            return repairPreviouslyMalformed(r);
         } catch (RuntimeException e) {
             log.error("failed to save reading {} {}: {}", r.getRegion(), r.getObservedAt(), e.getMessage(), e);
             return SaveOutcome.FAILED;
         }
+    }
+
+    /**
+     * The (source_id, region, observed_at) row already exists. Malformed readings now keep their timestamp, so if
+     * that row was stored malformed and the feed now has a valid value for the same hour, replace it rather than
+     * lose the valid reading. Otherwise it is an ordinary duplicate and is skipped.
+     */
+    private SaveOutcome repairPreviouslyMalformed(Reading incoming) {
+        Optional<Reading> existing = (incoming.isMalformed() || incoming.getObservedAt() == null)
+                ? Optional.empty()
+                : repo.findBySourceIdAndRegionAndObservedAt(
+                        incoming.getSourceId(), incoming.getRegion(), incoming.getObservedAt());
+        if (existing.isEmpty() || !existing.get().isMalformed()) {
+            log.info("duplicate reading skipped: {} {}", incoming.getRegion(), incoming.getObservedAt());
+            return SaveOutcome.DUPLICATE;
+        }
+        Reading stored = existing.get();
+        stored.setValue(incoming.getValue());
+        stored.setRawPayload(incoming.getRawPayload());
+        stored.setMalformed(false);
+        stored.setIngestedAt(incoming.getIngestedAt());
+        try {
+            repo.save(stored);
+            log.info("reading {} {} was malformed and is now valid; replaced", stored.getRegion(),
+                    stored.getObservedAt());
+            return SaveOutcome.SAVED;
+        } catch (RuntimeException e) {
+            log.error("failed to replace malformed reading {} {}: {}", stored.getRegion(), stored.getObservedAt(),
+                    e.getMessage(), e);
+            return SaveOutcome.FAILED;
+        }
+    }
+
+    /** True only if the database reported a constraint other than a unique one. */
+    private static boolean isOtherConstraintViolation(Throwable e) {
+        for (Throwable t = e; t != null && t.getCause() != t; t = t.getCause()) {
+            if (t instanceof SQLException sql && sql.getSQLState() != null) {
+                return !UNIQUE_VIOLATION.equals(sql.getSQLState());
+            }
+        }
+        return false;
     }
 }
