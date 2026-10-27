@@ -16,8 +16,8 @@ public record ConfidenceResponse(
             @Schema(description = "Seconds between the newest reading and scoring", example = "1800") long stalenessSeconds,
             @Schema(description = "Valid readings in the 24h window before the event", example = "23") int readingCount,
             @Schema(description = "Robust z-score of the event (same as deviationSize)", example = "4.2") Double deviationSize,
-            @Schema(description = "Share of sources that agree, 0..1; null while there is only one source",
-                    example = "null") Double sourceAgreement
+            @Schema(description = "Share of the other regions that also show a spike, 0..1; null when no other region is comparable",
+                    example = "0.75") Double sourceAgreement
     ) {}
 
     /** Null for events created before confidence scoring existed. */
