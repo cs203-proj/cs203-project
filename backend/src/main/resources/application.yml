@@ -45,6 +45,16 @@ app:
         signal-type: pm25
         from: "2026-09-30T00:00:00Z"
         to: "2026-10-13T00:00:00Z" # exclusive
+  explanation: # CG-135: AI explanation of each new event (Groq free plan)
+    enabled: ${AI_EXPLANATION_ENABLED:true}
+    api-key: ${GROQ_API_KEY:} # blank: every explanation is stored as FAILED "not configured", events unaffected
+    model: ${GROQ_MODEL:openai/gpt-oss-120b} # must support strict json_schema output
+    base-url: https://api.groq.com/openai/v1
+    timeout: 20s
+    lookback: 6h # window for the stale/partial-data check and the readings sent to the AI
+    expected-interval: 60m # hourly PM2.5 feed
+    stale-after: 2h
+    max-evidence-readings: 12
   seed:
     admin-username: ${ADMIN_SEED_USERNAME:#{null}}
     admin-password: ${ADMIN_SEED_PASSWORD:#{null}}
@@ -74,7 +84,9 @@ ingestion:
     max-attempts: ${INGESTION_HTTP_MAX_ATTEMPTS:3} # How many times FetchClient will attempt the whole fetch if it fails, before giving up for this cycle.
     initial-backoff: ${INGESTION_HTTP_INITIAL_BACKOFF:PT2S} # How long to wait before retrying after a failed attempt.
   backfill:
-    delay-between-days: ${INGESTION_BACKFILL_DELAY:PT2S}   # pause between days; data.gov.sg rate-limits rapid requests
+    delay-between-days: ${INGESTION_BACKFILL_DELAY:PT2S} # pause between days; data.gov.sg rate-limits rapid requests
+    max-days: ${INGESTION_BACKFILL_MAX_DAYS:31} # largest range per request: bounds how long one call runs and how many data.gov.sg calls it makes
+    max-pages-per-day: ${INGESTION_BACKFILL_MAX_PAGES:20}
 
 pm:
   url: ${PM_SOURCE_URL:https://api-open.data.gov.sg/v2/real-time/api/pm25}

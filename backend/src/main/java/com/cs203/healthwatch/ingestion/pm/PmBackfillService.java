@@ -4,6 +4,7 @@ import com.cs203.healthwatch.common.exception.BadRequestException;
 import com.cs203.healthwatch.dto.BackfillResponse;
 import com.cs203.healthwatch.ingestion.FetchClient;
 import com.cs203.healthwatch.ingestion.IngestResult;
+import com.cs203.healthwatch.ingestion.config.BackfillProperties;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -21,7 +22,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
-import org.springframework.beans.factory.annotation.Value;
 
 import lombok.RequiredArgsConstructor;
 
@@ -32,11 +32,10 @@ import lombok.RequiredArgsConstructor;
  * skipped by the (source_id, region, observed_at) unique constraint.
  */
 @Service
+@RequiredArgsConstructor
 public class PmBackfillService {
     private static final Logger log = LoggerFactory.getLogger(PmBackfillService.class);
 
-    public static final int MAX_DAYS = 31;
-    static final int MAX_PAGES_PER_DAY = 20;
     /** data.gov.sg dates its readings in Singapore time, so "today" is the SGT date. */
     private static final ZoneId SINGAPORE = ZoneId.of("Asia/Singapore");
 
@@ -44,20 +43,9 @@ public class PmBackfillService {
     private final ObjectMapper objectMapper;
     private final PmSourceProperties sourceProperties;
     private final PmIngestionService ingestion;
+    private final PmParser parser;
+    private final BackfillProperties backfillProperties;
     private final Clock clock;
-    /** Pause between days, so rapid requests don't hit data.gov.sg's rate limit. */
-    private final Duration delayBetweenDays;
-
-    public PmBackfillService(FetchClient fetchClient, ObjectMapper objectMapper,
-                             PmSourceProperties sourceProperties, PmIngestionService ingestion, Clock clock,
-                             @Value("${ingestion.backfill.delay-between-days:PT2S}") Duration delayBetweenDays) {
-        this.fetchClient = fetchClient;
-        this.objectMapper = objectMapper;
-        this.sourceProperties = sourceProperties;
-        this.ingestion = ingestion;
-        this.clock = clock;
-        this.delayBetweenDays = delayBetweenDays;
-    }
 
     /** Backfills every day from {@code from} to {@code to}, both inclusive, as SGT dates. */
     public BackfillResponse backfill(LocalDate from, LocalDate to) {
@@ -68,6 +56,11 @@ public class PmBackfillService {
         List<LocalDate> failedDays = new ArrayList<>();
 
         for (LocalDate day = from; !day.isAfter(to); day = day.plusDays(1)) {
+            if (Thread.currentThread().isInterrupted()) {
+                log.warn("backfill interrupted; {}..{} not fetched", day, to);
+                day.datesUntil(to.plusDays(1)).forEach(failedDays::add);
+                break;
+            }
             DayResult result = backfillDay(day);
             total = total.plus(result.ingested());
             pages += result.pages();
@@ -75,20 +68,25 @@ public class PmBackfillService {
                 failedDays.add(day);
             }
             if (day.isBefore(to)) {
-                pause(delayBetweenDays);   // no point waiting after the last day
+                pause(backfillProperties.delayBetweenDays());   // no point waiting after the last day
             }
         }
 
-        log.info("backfill {}..{} done: {} pages, {} saved, {} duplicates, {} malformed, {} failed days",
-                from, to, pages, total.saved(), total.duplicates(), total.malformed(), failedDays.size());
+        log.info("backfill {}..{} done: {} pages, {} saved, {} duplicates, {} malformed, {} failed rows, failed days {}",
+                from, to, pages, total.saved(), total.duplicates(), total.malformed(), total.failed(), failedDays);
         return new BackfillResponse(from, to, (int) ChronoUnit.DAYS.between(from, to) + 1, pages,
                 total.saved(), total.malformed(), total.duplicates(), total.failed(), failedDays);
     }
 
+    /**
+     * Fetches and stores one day. The day is complete only if every page was fetched, every page was a usable
+     * response, and every reading was stored (new or duplicate). Anything else puts the day in failedDays.
+     */
     private DayResult backfillDay(LocalDate day) {
         IngestResult total = IngestResult.EMPTY;
         String token = null;
         int pages = 0;
+        boolean allStored = true;
         do {
             String json = fetchClient.fetch(urlFor(day, token));
             if (json == null) {
@@ -102,16 +100,23 @@ public class PmBackfillService {
                 log.error("backfill: response for {} is not JSON: {}", day, e.getMessage());
                 return new DayResult(total, pages, false);
             }
-            total = total.plus(ingestion.ingest(root));
+            IngestResult ingested = ingestion.ingest(root);   // an unusable response is still stored, flagged malformed
+            total = total.plus(ingested);
             pages++;
+            if (!parser.isValidResponse(root)) {   // already logged by ingest()
+                return new DayResult(total, pages, false);
+            }
+            if (ingested.failed() > 0) {            // each failed row already logged by ingest()
+                allStored = false;
+            }
             token = nextToken(root);
-        } while (token != null && pages < MAX_PAGES_PER_DAY);
+        } while (token != null && pages < backfillProperties.maxPagesPerDay());
 
         if (token != null) {
             log.warn("backfill: stopped {} after {} pages; more pages were reported", day, pages);
             return new DayResult(total, pages, false);
         }
-        return new DayResult(total, pages, true);
+        return new DayResult(total, pages, allStored);
     }
 
     private String urlFor(LocalDate day, String token) {
@@ -151,8 +156,8 @@ public class PmBackfillService {
             throw new BadRequestException("to cannot be in the future");
         }
         long days = ChronoUnit.DAYS.between(from, to) + 1;
-        if (days > MAX_DAYS) {
-            throw new BadRequestException("At most " + MAX_DAYS + " days per request (got " + days
+        if (days > backfillProperties.maxDays()) {
+            throw new BadRequestException("At most " + backfillProperties.maxDays() + " days per request (got " + days
                     + "); split the range into several calls");
         }
     }
