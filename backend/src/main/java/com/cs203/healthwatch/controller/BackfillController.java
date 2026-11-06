@@ -61,6 +61,9 @@ public class BackfillController {
                     schema = @Schema(implementation = ApiErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired token", content = @Content)
     @ApiResponse(responseCode = "403", description = "Token is valid but the user is not an admin", content = @Content)
+    @ApiResponse(responseCode = "409", description = "The PM2.5 data source is disabled",
+                content = @Content(mediaType = "application/json",
+                schema = @Schema(implementation = ApiErrorResponse.class)))
     public BackfillResponse backfillPm25(
             @Parameter(description = "First day, YYYY-MM-DD (SGT)", example = "2026-08-01")
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,

@@ -6,6 +6,7 @@ import com.cs203.healthwatch.ingestion.IngestResult;
 import com.cs203.healthwatch.ingestion.FetchClient;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
+import com.cs203.healthwatch.ingestion.sources.DataSource;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 
 import java.sql.SQLException;
@@ -49,7 +50,13 @@ public class PmIngestionService implements IngestionService {
 
     @Override
     public void ingestLatest() {
-        String json = fetchClient.fetch(sourceProperties.url());
+        DataSource source = currentSource();
+        if (!source.isEnabled()) {
+            log.info("source {} is disabled, skipping this cycle", source.getName());
+            return;
+        }
+
+        String json = fetchClient.fetch(urlOf(source));
         if (json == null) {
             log.error("pull failed after retries, skipping this cycle");
             return;
@@ -65,9 +72,24 @@ public class PmIngestionService implements IngestionService {
         ingest(root);
     }
 
+    @Override
+    public String sourceName() {
+        return sourceProperties.name();
+    }
+
+    /** This feed's data_sources row, read fresh so enable/disable and url edits apply on the next pull (CG-58). */
+    DataSource currentSource() {
+        return dataSourceRegistry.current(sourceProperties.name(), sourceProperties.type());
+    }
+
+    /** The url stored on the source wins; pm.url from config is the fallback when none is set. */
+    String urlOf(DataSource source) {
+        return source.getUrl() != null ? source.getUrl() : sourceProperties.url();
+    }
+
     IngestResult ingest(JsonNode root) {
         UUID sourceId = dataSourceRegistry.resolve(sourceProperties.name(), sourceProperties.type());
-
+        
         if (!parser.isValidResponse(root)) {
             log.error("response from {} is unusable, storing it as malformed", sourceProperties.name());
             Reading reading = parser.malformed(root, PmParser.ALL_REGIONS, sourceId);

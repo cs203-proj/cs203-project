@@ -81,4 +81,23 @@ class DataSourceRegistryTest {
 
         assertThat(registry.resolve(NAME, TYPE)).isEqualTo(winnerId);
     }
+
+    @Test
+    void current_readsTheRowFromTheDatabaseEvenWhenTheIdIsCached() {
+        // Arrange: the first resolve caches name -> id
+        UUID id = UUID.randomUUID();
+        DataSource stored = source(id);
+        stored.setEnabled(false);
+        when(repo.findByName(NAME)).thenReturn(Optional.of(stored));
+        when(repo.findById(id)).thenReturn(Optional.of(stored));
+        registry.resolve(NAME, TYPE);
+
+        // Act
+        DataSource current = registry.current(NAME, TYPE);
+
+        // Assert: id came from the cache, enabled came from a fresh read
+        assertThat(current.isEnabled()).isFalse();
+        verify(repo, times(1)).findByName(NAME);
+        verify(repo).findById(id);
+    }
 }

@@ -11,6 +11,7 @@ import com.cs203.healthwatch.ingestion.config.IngestionHttpProperties;
 import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
+import com.cs203.healthwatch.ingestion.sources.DataSource;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -48,6 +49,9 @@ class PmLiveFetchTest {
         ReadingRepository repo = mock(ReadingRepository.class);
         DataSourceRegistry registry = mock(DataSourceRegistry.class);
         when(registry.resolve("datagovsg_pm25", "air_quality")).thenReturn(SOURCE_ID);
+        DataSource sourceRow = new DataSource("datagovsg_pm25", "air_quality");   // enabled, no url: uses URL
+        sourceRow.setId(SOURCE_ID);
+        when(registry.current("datagovsg_pm25", "air_quality")).thenReturn(sourceRow);
 
         PmSourceProperties props = new PmSourceProperties("datagovsg_pm25", URL, "air_quality",
                 REGIONS.stream().map(Region::new).toList());

@@ -27,6 +27,16 @@ public class DataSourceRegistry {
         return resolved;
     }
 
+    /**
+     * The source row for a feed, read from the database on every call (only the id is cached), so an admin's
+     * enable/disable or url change takes effect on the next pull.
+     */
+    public DataSource current(String name, String type) {
+        UUID id = resolve(name, type);
+        return repo.findById(id)
+                .orElseThrow(() -> new IllegalStateException("data source " + name + " (" + id + ") not found"));
+    }
+
     UUID createSource(String name, String type) {
         try {
             return repo.save(new DataSource(name, type)).getId();
