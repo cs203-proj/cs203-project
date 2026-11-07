@@ -13,7 +13,11 @@ public class IngestionClientConfig {
     @Bean
     public RestClient restClient(RestClient.Builder builder, IngestionHttpProperties props) {
         var factory = new JdkClientHttpRequestFactory(
-                HttpClient.newBuilder().connectTimeout(props.connectTimeout()).build());
+                HttpClient.newBuilder()
+                        .connectTimeout(props.connectTimeout())
+                        // never follow redirects: a feed must not be able to send the server to another host
+                        .followRedirects(HttpClient.Redirect.NEVER)
+                        .build());
         factory.setReadTimeout(props.readTimeout());
         return builder.requestFactory(factory).build();
     }
