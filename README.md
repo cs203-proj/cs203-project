@@ -133,6 +133,17 @@ robust z-score (detection only fires above 3):
   "Confidence: not yet assessed."
 - Per-audience drafts (vulnerable groups, healthcare workers) are Sprint 3.
 
+## Profile (CG-6)
+
+An end user has a profile that drives per-audience warnings (CG-154) and `GET /me/warnings` (CG-22).
+
+### Frozen codes (shared with CG-154 and CG-22)
+
+- `region`: `central`, `north`, `south`, `east`, `west` (lowercase, same as `pm.regions`).
+- `audience`: `GENERAL_PUBLIC`, `VULNERABLE`, `HEALTHCARE_WORKER` (uppercase, same as `warnings.audience`).
+- `healthConditions`: a list of codes from `HealthCondition.java`; never free text. Duplicates are ignored.
+- Case matters: `North` is rejected. Changing a code needs CG-6, CG-154 and CG-22 to agree.
+
 ## Project structure
 
 - `backend/` — Spring Boot 3.3 (Java 21) API: web, JPA, Postgres, Flyway, Spring Security, JWT (jjwt), OpenAPI/Swagger.
