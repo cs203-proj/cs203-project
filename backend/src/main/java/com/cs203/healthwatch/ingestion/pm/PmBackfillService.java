@@ -1,10 +1,12 @@
 package com.cs203.healthwatch.ingestion.pm;
 
 import com.cs203.healthwatch.common.exception.BadRequestException;
+import com.cs203.healthwatch.common.exception.ConflictException;
 import com.cs203.healthwatch.dto.BackfillResponse;
 import com.cs203.healthwatch.ingestion.FetchClient;
 import com.cs203.healthwatch.ingestion.IngestResult;
 import com.cs203.healthwatch.ingestion.config.BackfillProperties;
+import com.cs203.healthwatch.ingestion.sources.DataSource;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -41,7 +43,6 @@ public class PmBackfillService {
 
     private final FetchClient fetchClient;
     private final ObjectMapper objectMapper;
-    private final PmSourceProperties sourceProperties;
     private final PmIngestionService ingestion;
     private final PmParser parser;
     private final BackfillProperties backfillProperties;
@@ -50,6 +51,11 @@ public class PmBackfillService {
     /** Backfills every day from {@code from} to {@code to}, both inclusive, as SGT dates. */
     public BackfillResponse backfill(LocalDate from, LocalDate to) {
         validate(from, to);
+        DataSource source = ingestion.currentSource();
+        if (!source.isEnabled()) {
+            throw new ConflictException("Data source " + source.getName() + " is disabled; enable it before backfilling");
+        }
+        String baseUrl = ingestion.urlOf(source);
 
         IngestResult total = IngestResult.EMPTY;
         int pages = 0;
@@ -61,7 +67,7 @@ public class PmBackfillService {
                 day.datesUntil(to.plusDays(1)).forEach(failedDays::add);
                 break;
             }
-            DayResult result = backfillDay(day);
+            DayResult result = backfillDay(baseUrl, day);
             total = total.plus(result.ingested());
             pages += result.pages();
             if (!result.complete()) {
@@ -82,13 +88,13 @@ public class PmBackfillService {
      * Fetches and stores one day. The day is complete only if every page was fetched, every page was a usable
      * response, and every reading was stored (new or duplicate). Anything else puts the day in failedDays.
      */
-    private DayResult backfillDay(LocalDate day) {
+    private DayResult backfillDay(String baseUrl, LocalDate day) {
         IngestResult total = IngestResult.EMPTY;
         String token = null;
         int pages = 0;
         boolean allStored = true;
         do {
-            String json = fetchClient.fetch(urlFor(day, token));
+            String json = fetchClient.fetch(urlFor(baseUrl, day, token));
             if (json == null) {
                 log.error("backfill: fetch failed for {} (page {}), skipping the rest of that day", day, pages + 1);
                 return new DayResult(total, pages, false);
@@ -119,8 +125,8 @@ public class PmBackfillService {
         return new DayResult(total, pages, allStored);
     }
 
-    private String urlFor(LocalDate day, String token) {
-        UriComponentsBuilder url = UriComponentsBuilder.fromUriString(sourceProperties.url())
+    private static String urlFor(String baseUrl, LocalDate day, String token) {
+        UriComponentsBuilder url = UriComponentsBuilder.fromUriString(baseUrl)
                 .queryParam("date", day.toString());
         if (token != null) {
             url.queryParam("paginationToken", token);

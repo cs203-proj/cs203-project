@@ -78,6 +78,9 @@ ingestion:
   scheduling:
     enabled: ${INGESTION_SCHEDULING_ENABLED:true}
     fixed-delay-ms: ${INGESTION_SCHEDULING_FIXED_DELAY_MS:3600000}
+  sources:
+    # hosts a data source url may point at; comma-separated in the env var (CG-58, blocks SSRF)
+    allowed-hosts: ${INGESTION_ALLOWED_HOSTS:api-open.data.gov.sg}
   http:
     connect-timeout: ${INGESTION_HTTP_CONNECT_TIMEOUT:PT5S} # How long to wait while trying to establish a connection to the AQI server before giving up.
     read-timeout: ${INGESTION_HTTP_READ_TIMEOUT:PT10S} # Once connected, how long to wait for the server to actually send back data before giving up.

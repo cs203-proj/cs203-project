@@ -9,4 +9,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface DataSourceRepository extends JpaRepository<DataSource, UUID> {
     Optional<DataSource> findByName(String name);
+
+    boolean existsByName(String name);
 }
