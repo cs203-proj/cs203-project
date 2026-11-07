@@ -29,12 +29,14 @@ public class DataSourceRegistry {
 
     /**
      * The source row for a feed, read from the database on every call (only the id is cached), so an admin's
-     * enable/disable or url change takes effect on the next pull.
+     * enable/disable, url change and type checks takes effect on the next pull.
      */
     public DataSource current(String name, String type) {
         UUID id = resolve(name, type);
-        return repo.findById(id)
+        DataSource row = repo.findById(id)
                 .orElseThrow(() -> new IllegalStateException("data source " + name + " (" + id + ") not found"));
+        checkType(row, type);   // checked on every pull, not only when the id is first cached
+        return row;
     }
     
     /**
