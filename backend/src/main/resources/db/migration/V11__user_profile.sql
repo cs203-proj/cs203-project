@@ -1,4 +1,4 @@
--- V10: end-user profile (CG-6)
+-- V11: end-user profile (CG-6)
 
 alter table users
     add column region   text,
@@ -12,7 +12,7 @@ alter table users add constraint chk_users_audience
 
 -- in sync with HealthCondition.java
 create table user_health_conditions (
-    user_id        uuid not null references users (id),
+    user_id uuid not null references users (id) on delete cascade, --delete cascade
     condition_code text not null,
     primary key (user_id, condition_code),
     constraint chk_user_health_conditions_code
