@@ -1,6 +1,7 @@
 package com.cs203.healthwatch.ingestion.sources;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -99,5 +100,18 @@ class DataSourceRegistryTest {
         assertThat(current.isEnabled()).isFalse();
         verify(repo, times(1)).findByName(NAME);
         verify(repo).findById(id);
+    }
+
+    @Test
+    void resolve_existingSourceWithADifferentType_failsFast() {
+        // Arrange
+        DataSource wrongType = new DataSource(NAME, "weather");
+        wrongType.setId(UUID.randomUUID());
+        when(repo.findByName(NAME)).thenReturn(Optional.of(wrongType));
+
+        // Act + Assert
+        assertThatThrownBy(() -> registry.resolve(NAME, TYPE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("weather");
     }
 }

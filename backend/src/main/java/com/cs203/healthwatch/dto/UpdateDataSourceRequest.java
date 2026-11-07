@@ -10,9 +10,9 @@ import org.hibernate.validator.constraints.URL;
  */
 @Schema(description = "Editable fields of a data source")
 public record UpdateDataSourceRequest(
-        @Schema(description = "Feed URL (http or https); null falls back to the configured default",
+        @Schema(description = "Feed URL (https, on an allowed host); null falls back to the configured default",
                 example = "https://api-open.data.gov.sg/v2/real-time/api/pm25")
-        @URL(regexp = "^https?://.*", message = "url must be a valid http or https URL")
+        @URL(regexp = "^https://.*", message = "url must be a valid https URL")
         String url
 ) {
 }

@@ -16,9 +16,9 @@ public record CreateDataSourceRequest(
         @NotBlank(message = "type is required") @Size(max = 50, message = "type must be at most 50 characters")
         String type,
 
-        @Schema(description = "Feed URL (http or https); optional",
+        @Schema(description = "Feed URL (https, on an allowed host); optional",
                 example = "https://api-open.data.gov.sg/v2/real-time/api/pm25")
-        @URL(regexp = "^https?://.*", message = "url must be a valid http or https URL")
+        @URL(regexp = "^https://.*", message = "url must be a valid https URL")
         String url
 ) {
 }

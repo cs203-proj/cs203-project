@@ -77,6 +77,11 @@ public class PmIngestionService implements IngestionService {
         return sourceProperties.name();
     }
 
+    @Override
+    public String sourceType() {
+        return sourceProperties.type();
+    }
+
     /** This feed's data_sources row, read fresh so enable/disable and url edits apply on the next pull (CG-58). */
     DataSource currentSource() {
         return dataSourceRegistry.current(sourceProperties.name(), sourceProperties.type());
@@ -89,7 +94,7 @@ public class PmIngestionService implements IngestionService {
 
     IngestResult ingest(JsonNode root) {
         UUID sourceId = dataSourceRegistry.resolve(sourceProperties.name(), sourceProperties.type());
-        
+
         if (!parser.isValidResponse(root)) {
             log.error("response from {} is unusable, storing it as malformed", sourceProperties.name());
             Reading reading = parser.malformed(root, PmParser.ALL_REGIONS, sourceId);

@@ -6,4 +6,7 @@ public interface IngestionService {
 
     /** data_sources.name of the source this service ingests, e.g. datagovsg_pm25. */
     String sourceName();
+
+    /** data_sources.type of that source, e.g. air_quality. Detection finds readings by this type. */
+    String sourceType();
 }

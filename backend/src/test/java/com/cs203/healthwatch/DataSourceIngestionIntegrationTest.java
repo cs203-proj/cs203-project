@@ -107,7 +107,7 @@ class DataSourceIngestionIntegrationTest {
     @Test
     void urlSetThroughTheApi_isUsedByTheNextPull() throws Exception {
         // Arrange
-        String newUrl = "https://mirror.example.test/pm25";
+        String newUrl = "https://api-open.data.gov.sg/v2/real-time/api/pm25?mirror=1";   // allowed host
         mockMvc.perform(put("/data-sources/{id}", sourceId)
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)

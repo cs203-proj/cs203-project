@@ -155,6 +155,16 @@ class DataSourceControllerTest {
     }
 
     @Test
+    void create_plainHttpUrl_is400() throws Exception {
+        mockMvc.perform(post("/data-sources").header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"x\",\"type\":\"air_quality\","
+                                + "\"url\":\"http://api-open.data.gov.sg/pm25\"}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(service);
+    }
+
+    @Test
     void update_invalidUrl_is400() throws Exception {
         mockMvc.perform(put("/data-sources/" + ID).header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
