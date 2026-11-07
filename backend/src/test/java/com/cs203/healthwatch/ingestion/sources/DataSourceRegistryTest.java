@@ -1,6 +1,7 @@
 package com.cs203.healthwatch.ingestion.sources;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -80,5 +81,37 @@ class DataSourceRegistryTest {
         when(repo.save(any(DataSource.class))).thenThrow(new DataIntegrityViolationException("duplicate name"));
 
         assertThat(registry.resolve(NAME, TYPE)).isEqualTo(winnerId);
+    }
+
+    @Test
+    void current_readsTheRowFromTheDatabaseEvenWhenTheIdIsCached() {
+        // Arrange: the first resolve caches name -> id
+        UUID id = UUID.randomUUID();
+        DataSource stored = source(id);
+        stored.setEnabled(false);
+        when(repo.findByName(NAME)).thenReturn(Optional.of(stored));
+        when(repo.findById(id)).thenReturn(Optional.of(stored));
+        registry.resolve(NAME, TYPE);
+
+        // Act
+        DataSource current = registry.current(NAME, TYPE);
+
+        // Assert: id came from the cache, enabled came from a fresh read
+        assertThat(current.isEnabled()).isFalse();
+        verify(repo, times(1)).findByName(NAME);
+        verify(repo).findById(id);
+    }
+
+    @Test
+    void resolve_existingSourceWithADifferentType_failsFast() {
+        // Arrange
+        DataSource wrongType = new DataSource(NAME, "weather");
+        wrongType.setId(UUID.randomUUID());
+        when(repo.findByName(NAME)).thenReturn(Optional.of(wrongType));
+
+        // Act + Assert
+        assertThatThrownBy(() -> registry.resolve(NAME, TYPE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("weather");
     }
 }

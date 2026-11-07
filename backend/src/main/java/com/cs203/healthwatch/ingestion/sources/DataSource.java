@@ -40,6 +40,14 @@ public class DataSource {
     @Column(name = "created_at", updatable = false, nullable = false)
     private Instant createdAt;
 
+    // Disabled sources are skipped by ingestion and backfill
+    @Column(name = "enabled", nullable = false)
+    private boolean enabled = true;
+
+    // Feed URL. Null means ingestion uses the configured url (pm.url).
+    @Column(name = "url")
+    private String url;
+
     public DataSource(String name, String type) {
         this.name = name;
         this.type = type;

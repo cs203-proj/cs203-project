@@ -1,6 +1,7 @@
 package com.cs203.healthwatch.common;
 
 import com.cs203.healthwatch.common.exception.BadRequestException;
+import com.cs203.healthwatch.common.exception.ConflictException;
 import com.cs203.healthwatch.common.exception.ForbiddenException;
 import com.cs203.healthwatch.common.exception.ResourceNotFoundException;
 import java.util.List;
@@ -24,6 +25,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleNotFound(ResourceNotFoundException ex) {
         return error(HttpStatus.NOT_FOUND, ex.getMessage(), List.of());
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleConflict(ConflictException ex) {
+        return error(HttpStatus.CONFLICT, ex.getMessage(), List.of());
     }
 
     @ExceptionHandler(ForbiddenException.class)

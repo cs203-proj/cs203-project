@@ -8,15 +8,18 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.cs203.healthwatch.common.exception.BadRequestException;
+import com.cs203.healthwatch.common.exception.ConflictException;
 import com.cs203.healthwatch.dto.BackfillResponse;
 import com.cs203.healthwatch.ingestion.FetchClient;
 import com.cs203.healthwatch.ingestion.config.BackfillProperties;
 import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
+import com.cs203.healthwatch.ingestion.sources.DataSource;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,10 +61,14 @@ class PmBackfillServiceTest {
     @Mock private DataSourceRegistry registry;
 
     private PmBackfillService backfill;
+    private DataSource sourceRow;
 
     @BeforeEach
     void setUp() {
         backfill = backfillWith(CLOCK);
+        sourceRow = new DataSource("datagovsg_pm25", "air_quality");
+        sourceRow.setId(SOURCE_ID);
+        lenient().when(registry.current("datagovsg_pm25", "air_quality")).thenReturn(sourceRow);
     }
 
     private PmBackfillService backfillWith(Clock clock) {
@@ -74,7 +81,7 @@ class PmBackfillServiceTest {
                 List.of(new Region("central"), new Region("west")));
         PmParser parser = new PmParser();
         PmIngestionService ingestion = new PmIngestionService(fetchClient, parser, repo, mapper, props, registry, clock);
-        return new PmBackfillService(fetchClient, mapper, props, ingestion, parser, backfillProps, clock);
+        return new PmBackfillService(fetchClient, mapper, ingestion, parser, backfillProps, clock);
     }
 
     /** One page for a day: two hourly items with central and west values, optionally pointing to a next page. */
@@ -260,5 +267,29 @@ class PmBackfillServiceTest {
 
         assertThat(result.days()).isEqualTo(MAX_DAYS);
         verify(fetchClient, times(MAX_DAYS)).fetch(anyString());
+    }
+
+    // ------------------------------------------------------------------ CG-58 enabled / url
+
+    @Test
+    void disabledSource_isRejectedWithConflict_andNothingIsFetched() {
+        sourceRow.setEnabled(false);
+
+        assertThatThrownBy(() -> backfill.backfill(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-01")))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("disabled");
+        verifyNoInteractions(fetchClient, repo);
+    }
+
+    @Test
+    void urlStoredOnTheSource_isUsedForEveryDay() {
+        sourceRow.setUrl("https://mirror.example.test/pm25");
+        sourceResolves();
+        when(fetchClient.fetch("https://mirror.example.test/pm25?date=2026-09-01"))
+                .thenReturn(page("2026-09-01", 0, null));
+
+        assertThat(backfill.backfill(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-01")).failedDays())
+                .isEmpty();
+        verify(fetchClient, never()).fetch(URL + "?date=2026-09-01");
     }
 }

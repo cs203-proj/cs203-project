@@ -17,6 +17,7 @@ import com.cs203.healthwatch.ingestion.IngestResult;
 import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
+import com.cs203.healthwatch.ingestion.sources.DataSource;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -67,6 +69,16 @@ class PmIngestionServiceTest {
     @Mock private ReadingRepository repo;
     @Mock private DataSourceRegistry registry;
 
+    /** The source row ingestLatest reads each pull; enabled with no url unless a test changes it. */
+    private DataSource sourceRow;
+
+    @BeforeEach
+    void sourceRowIsEnabled() {
+        sourceRow = new DataSource(SOURCE_NAME, SOURCE_TYPE);
+        sourceRow.setId(SOURCE_ID);
+        lenient().when(registry.current(SOURCE_NAME, SOURCE_TYPE)).thenReturn(sourceRow);
+    }
+
     private PmIngestionService service(PmParser parser, String... regions) {
         List<Region> regionList = Arrays.stream(regions).map(Region::new).toList();
         PmSourceProperties props = new PmSourceProperties(SOURCE_NAME, URL, SOURCE_TYPE, regionList);
@@ -100,7 +112,8 @@ class PmIngestionServiceTest {
 
         service("central").ingestLatest();
 
-        verifyNoInteractions(repo, registry);
+        verifyNoInteractions(repo);
+        verify(registry, never()).resolve(any(), any());
     }
 
     @Test
@@ -109,7 +122,8 @@ class PmIngestionServiceTest {
 
         service("central").ingestLatest();
 
-        verifyNoInteractions(repo, registry);
+        verifyNoInteractions(repo);
+        verify(registry, never()).resolve(any(), any());
     }
 
     // ------------------------------------------------------------------ multiple regions (CG-136)
@@ -372,5 +386,30 @@ class PmIngestionServiceTest {
         // Assert
         assertThat(result.duplicates()).isEqualTo(1);
         verify(repo, never()).findBySourceIdAndRegionAndObservedAt(any(), any(), any());
+    }
+
+    // ------------------------------------------------------------------ CG-58 enabled / url
+
+    @Test
+    void disabledSource_isNotFetched_andNothingIsSaved() {
+        sourceRow.setEnabled(false);
+
+        service("central").ingestLatest();
+
+        verify(fetchClient, never()).fetch(any());
+        verifyNoInteractions(repo);
+    }
+
+    @Test
+    void urlStoredOnTheSource_isFetchedInsteadOfTheConfiguredUrl() {
+        String dbUrl = "https://mirror.example.test/pm25";
+        sourceRow.setUrl(dbUrl);
+        sourceResolves();
+        when(fetchClient.fetch(dbUrl)).thenReturn(ALL_REGIONS_RESPONSE);
+
+        service("central").ingestLatest();
+
+        verify(fetchClient).fetch(dbUrl);
+        verify(fetchClient, never()).fetch(URL);
     }
 }
