@@ -3,70 +3,120 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Data sources · HealthWatch admin</title>
+  <title>HealthWatch | Data sources</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="vendor/flatpickr/flatpickr.min.css">
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <nav id="nav"></nav>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
 
-  <main>
-    <h1>Data sources</h1>
-    <p class="subtitle">Feeds the system ingests. Disabled sources are skipped by the scheduled pull and by backfill. Sources are never deleted, so their reading history is kept.</p>
-
-    <div id="message" hidden></div>
-
-    <div class="toolbar">
-      <form id="search-form" class="inline-form">
-        <div class="field">
-          <label for="search-name">Find by exact name</label>
-          <input type="text" id="search-name" placeholder="e.g. datagovsg_pm25">
+    <div class="main-shell">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Ingestion</div>
+          <h1>Data sources</h1>
         </div>
-        <button type="submit">Search</button>
-        <button type="button" id="clear-search">Show all</button>
-      </form>
-      <span class="spacer"></span>
-      <button type="button" class="primary" id="show-add">+ Register source</button>
+      </header>
+
+      <div class="page">
+        <div class="intro-row">
+          <div>
+            <h2>Ingestion feeds</h2>
+            <p>Disabled sources are skipped by the hourly pull and by backfill.</p>
+          </div>
+          <button type="button" class="btn btn-primary" id="show-add"></button>
+        </div>
+
+        <div id="message" class="message" hidden></div>
+
+        <!-- New source form, hidden until "Register source" is clicked -->
+        <form class="panel register-form" id="add-form" novalidate hidden>
+          <div class="panel-title">
+            <div>
+              <h2>Register a new source</h2>
+              <p>New sources start disabled. A source can only be enabled once the backend has a parser for its name and type.</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" id="close-add" aria-label="Close"></button>
+          </div>
+          <div class="form-grid">
+            <label class="field">Source name
+              <input type="text" id="add-name" maxlength="100" placeholder="e.g. datagovsg_psi" required>
+            </label>
+            <label class="field">Source type
+              <input type="text" id="add-type" placeholder="e.g. air_quality" required>
+            </label>
+            <label class="field wide">Feed URL (optional) <span id="hosts-help-form"></span>
+              <input type="text" id="add-url" placeholder="https://api-open.data.gov.sg/...">
+              <span class="hint">Must be https on an allowed host. Leave empty to use the default from the server config.</span>
+            </label>
+          </div>
+          <div class="form-error" id="add-error" hidden></div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-ghost" id="cancel-add">Cancel</button>
+            <button type="submit" class="btn btn-primary">Register source</button>
+          </div>
+        </form>
+
+        <div class="source-summary">
+          <div class="stat"><i style="background: var(--navy)"></i><div><span>Enabled</span><strong id="count-enabled">–</strong></div></div>
+          <div class="stat"><i style="background: var(--haze)"></i><div><span>Disabled</span><strong id="count-disabled">–</strong></div></div>
+        </div>
+
+        <div class="table-card">
+          <div class="table-tools">
+            <strong>All sources</strong>
+            <label class="mini-search">
+              <span id="search-icon"></span>
+              <input type="search" id="search-name" placeholder="Search sources" aria-label="Search sources by name">
+            </label>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Type</th>
+                <th>Feed URL <span id="hosts-help-table"></span></th>
+                <th>Status</th>
+                <th>Ingestion</th>
+                <th class="col-last-data" hidden>Last data</th>
+                <th>Backfill</th>
+              </tr>
+            </thead>
+            <tbody id="source-rows"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <!-- New source form, hidden until "Register source" is clicked -->
-    <form id="add-form" class="card" hidden>
-      <h2>Register a data source</h2>
-      <p class="muted small">New sources start disabled. A source is only ingested once a parser for its name and type exists in the code (shown as "Ingestion available").</p>
-      <div class="grid-2">
-        <div class="field">
-          <label for="add-name">Name</label>
-          <input type="text" id="add-name" maxlength="100" required placeholder="datagovsg_psi">
+  <!-- Backfill pop-up, opened from the Backfill column -->
+  <div class="modal-backdrop" id="backfill-modal" hidden>
+    <form class="modal modal-wide" id="backfill-form" role="dialog" aria-modal="true" aria-labelledby="backfill-title">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow" id="backfill-source"></div>
+          <h2 id="backfill-title">Historical backfill</h2>
         </div>
-        <div class="field">
-          <label for="add-type">Type</label>
-          <input type="text" id="add-type" required placeholder="air_quality">
-        </div>
+        <button type="button" id="backfill-close" aria-label="Close"></button>
       </div>
-      <div class="field">
-        <label for="add-url">Feed URL (optional, https on an allowed host)</label>
-        <input type="url" id="add-url" placeholder="https://api-open.data.gov.sg/...">
+      <p class="muted small" style="margin-bottom: 16px">Loads past readings for every region, using Singapore dates (both ends included), up to 31 days per run. </p>
+      <label class="field">Date range
+        <span class="date-input"><input type="text" class="input" id="backfill-range" placeholder="Pick the first and last day" readonly></span>
+      </label>
+      <div class="form-error" id="backfill-error" hidden></div>
+      <div id="backfill-result"></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" id="backfill-cancel">Close</button>
+        <button type="submit" class="btn btn-primary" id="run-backfill"></button>
       </div>
-      <button type="submit" class="primary">Register</button>
-      <button type="button" id="cancel-add">Cancel</button>
     </form>
+  </div>
 
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Feed URL</th>
-            <th>Status</th>
-            <th>Ingestion available</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="source-rows"></tbody>
-      </table>
-    </div>
-  </main>
-
+  <script src="vendor/flatpickr/flatpickr.min.js"></script>
   <script src="js/api.js"></script>
   <script src="js/sources.js"></script>
 </body>

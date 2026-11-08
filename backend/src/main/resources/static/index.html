@@ -2,10 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>HealthWatch admin</title>
+  <title>HealthWatch</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 </head>
 <body>
-  <!-- Entry point: go to the queue if logged in, otherwise to login. -->
+  <!-- Entry point: go to the queue if signed in, otherwise to the sign-in page. -->
   <script src="js/api.js"></script>
   <script>
     window.location.replace(getToken() ? "queue.html" : "login.html");

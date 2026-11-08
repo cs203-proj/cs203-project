@@ -3,27 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Log in · HealthWatch admin</title>
+  <title>HealthWatch | Sign in</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <div class="login-wrap">
-    <div class="card login-card">
-      <h1>HealthWatch</h1>
-      <p class="subtitle">Admin console</p>
-
-      <div id="message" hidden></div>
-
-      <form id="login-form">
-        <div class="field">
-          <label for="username">Username</label>
-          <input type="text" id="username" autocomplete="username" required>
+  <div class="login-shell">
+    <div>
+      <form class="login-card" id="login-form">
+        <div class="brand-mark" id="login-mark"></div>
+        <div class="auth-heading">
+          <h2>Welcome back</h2>
+          <p>Sign in to HealthWatch</p>
         </div>
-        <div class="field">
-          <label for="password">Password</label>
-          <input type="password" id="password" autocomplete="current-password" required>
-        </div>
-        <button type="submit" class="primary" style="width: 100%">Log in</button>
+
+        <div id="message" class="message" hidden></div>
+
+        <label class="field">Username
+          <input type="text" id="username" autocomplete="username" placeholder="Enter your username" required>
+        </label>
+
+        <label class="field">Password
+          <div class="password-field">
+            <input type="password" id="password" autocomplete="current-password" placeholder="Enter your password" required>
+            <button type="button" id="toggle-password" aria-label="Show password"></button>
+          </div>
+        </label>
+
+        <button type="submit" class="btn btn-primary" id="submit"></button>
       </form>
     </div>
   </div>

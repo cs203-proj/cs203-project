@@ -3,37 +3,61 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Review queue · HealthWatch admin</title>
+  <title>HealthWatch | Review warnings</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <nav id="nav"></nav>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
 
-  <main>
-    <h1>Review queue</h1>
-    <p class="subtitle">AI-drafted warnings, most severe first, then longest waiting. Nothing is sent to the public from here.</p>
+    <div class="main-shell">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Warning operations</div>
+          <h1>Review warnings</h1>
+        </div>
+      </header>
 
-    <div id="message" hidden></div>
+      <div class="page">
+        <div class="intro-row">
+          <div>
+            <h2>AI-drafted warnings</h2>
+            <p>Review before sending out to the public.</p>
+          </div>
+        </div>
 
-    <div class="toolbar">
-      <div class="tabs" id="status-tabs">
-        <button type="button" data-status="PENDING_REVIEW" class="active">Pending review</button>
-        <button type="button" data-status="APPROVED">Approved</button>
-        <button type="button" data-status="SUPPRESSED">Suppressed</button>
-        <button type="button" data-status="">All</button>
+        <div id="message" class="message" hidden></div>
+
+        <div class="tabs" id="status-tabs">
+          <button type="button" data-status="PENDING_REVIEW" class="active">Pending review <span></span></button>
+          <button type="button" data-status="APPROVED">Approved <span></span></button>
+          <button type="button" data-status="SUPPRESSED">Suppressed <span></span></button>
+          <button type="button" data-status="">All <span></span></button>
+        </div>
+
+        <div class="queue-list" id="warnings"></div>
+
+        <div class="card-actions" id="pager" hidden style="border: 0; margin-top: 8px">
+          <button type="button" class="btn btn-secondary" id="prev">Previous</button>
+          <button type="button" class="btn btn-secondary" id="next">Next</button>
+        </div>
       </div>
-      <span class="spacer"></span>
-      <span class="muted small" id="count"></span>
-      <button type="button" id="refresh">Refresh</button>
     </div>
+  </div>
 
-    <div id="warnings"></div>
-
-    <div class="toolbar" id="pager" hidden>
-      <button type="button" id="prev">← Previous</button>
-      <button type="button" id="next">Next →</button>
+  <!-- History pop-up (warning audit trail), filled in by queue.js -->
+  <div class="modal-backdrop" id="audit-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="audit-title">
+      <div class="modal-head">
+        <div><div class="eyebrow" id="audit-eyebrow"></div><h2 id="audit-title">History</h2></div>
+        <button type="button" id="audit-close" aria-label="Close"></button>
+      </div>
+      <div id="audit-body"></div>
     </div>
-  </main>
+  </div>
 
   <script src="js/api.js"></script>
   <script src="js/queue.js"></script>
