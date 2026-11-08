@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demo tools · HealthWatch admin</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <nav id="nav"></nav>
+
+  <main>
+    <h1>Demo tools</h1>
+    <p class="subtitle">Admin actions for demos and data maintenance.</p>
+
+    <div id="message" hidden></div>
+
+    <div class="grid-2">
+      <section class="card">
+        <h2>Replay haze episode</h2>
+        <p>Runs the Sept 2026 haze readings through normal detection. The first sustained breach becomes a NEW event, tagged as a replay. Only one replay event can be open at a time: dismiss it to replay again.</p>
+        <button type="button" class="primary" id="replay">Run replay</button>
+        <div id="replay-result"></div>
+      </section>
+
+      <section class="card">
+        <h2>Backfill PM2.5 readings</h2>
+        <p>Loads historical readings from data.gov.sg for every region (Singapore dates, both inclusive, max 31 days per run). Safe to rerun: existing readings are skipped.</p>
+        <form id="backfill-form">
+          <div class="grid-2">
+            <div class="field">
+              <label for="from">From</label>
+              <input type="date" id="from" required>
+            </div>
+            <div class="field">
+              <label for="to">To</label>
+              <input type="date" id="to" required>
+            </div>
+          </div>
+          <button type="submit" class="primary">Run backfill</button>
+        </form>
+        <div id="backfill-result"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/tools.js"></script>
+</body>
+</html>

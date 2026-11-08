@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Events · HealthWatch admin</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <nav id="nav"></nav>
+
+  <main>
+    <h1>Flagged events</h1>
+    <p class="subtitle">Readings that stayed well above their baseline. Largest deviation first. Click an event to review it.</p>
+
+    <div id="message" hidden></div>
+
+    <div class="toolbar">
+      <div class="tabs" id="status-tabs">
+        <button type="button" data-status="" class="active">All</button>
+        <button type="button" data-status="NEW">New</button>
+        <button type="button" data-status="UNDER_REVIEW">Under review</button>
+        <button type="button" data-status="CONFIRMED">Confirmed</button>
+        <button type="button" data-status="DISMISSED">Dismissed</button>
+      </div>
+      <span class="spacer"></span>
+      <span class="muted small" id="count"></span>
+      <button type="button" id="refresh">Refresh</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Detected</th>
+            <th>Region</th>
+            <th>Signal</th>
+            <th>Deviation</th>
+            <th>Confidence</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="event-rows"></tbody>
+      </table>
+    </div>
+
+    <!-- Filled in when an event is selected -->
+    <section id="detail" hidden style="margin-top: 24px"></section>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/events.js"></script>
+</body>
+</html>

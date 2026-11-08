@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Data sources · HealthWatch admin</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <nav id="nav"></nav>
+
+  <main>
+    <h1>Data sources</h1>
+    <p class="subtitle">Feeds the system ingests. Disabled sources are skipped by the scheduled pull and by backfill. Sources are never deleted, so their reading history is kept.</p>
+
+    <div id="message" hidden></div>
+
+    <div class="toolbar">
+      <form id="search-form" class="inline-form">
+        <div class="field">
+          <label for="search-name">Find by exact name</label>
+          <input type="text" id="search-name" placeholder="e.g. datagovsg_pm25">
+        </div>
+        <button type="submit">Search</button>
+        <button type="button" id="clear-search">Show all</button>
+      </form>
+      <span class="spacer"></span>
+      <button type="button" class="primary" id="show-add">+ Register source</button>
+    </div>
+
+    <!-- New source form, hidden until "Register source" is clicked -->
+    <form id="add-form" class="card" hidden>
+      <h2>Register a data source</h2>
+      <p class="muted small">New sources start disabled. A source is only ingested once a parser for its name and type exists in the code (shown as "Ingestion available").</p>
+      <div class="grid-2">
+        <div class="field">
+          <label for="add-name">Name</label>
+          <input type="text" id="add-name" maxlength="100" required placeholder="datagovsg_psi">
+        </div>
+        <div class="field">
+          <label for="add-type">Type</label>
+          <input type="text" id="add-type" required placeholder="air_quality">
+        </div>
+      </div>
+      <div class="field">
+        <label for="add-url">Feed URL (optional, https on an allowed host)</label>
+        <input type="url" id="add-url" placeholder="https://api-open.data.gov.sg/...">
+      </div>
+      <button type="submit" class="primary">Register</button>
+      <button type="button" id="cancel-add">Cancel</button>
+    </form>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Feed URL</th>
+            <th>Status</th>
+            <th>Ingestion available</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="source-rows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/sources.js"></script>
+</body>
+</html>

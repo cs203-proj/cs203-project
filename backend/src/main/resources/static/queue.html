@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review queue · HealthWatch admin</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <nav id="nav"></nav>
+
+  <main>
+    <h1>Review queue</h1>
+    <p class="subtitle">AI-drafted warnings, most severe first, then longest waiting. Nothing is sent to the public from here.</p>
+
+    <div id="message" hidden></div>
+
+    <div class="toolbar">
+      <div class="tabs" id="status-tabs">
+        <button type="button" data-status="PENDING_REVIEW" class="active">Pending review</button>
+        <button type="button" data-status="APPROVED">Approved</button>
+        <button type="button" data-status="SUPPRESSED">Suppressed</button>
+        <button type="button" data-status="">All</button>
+      </div>
+      <span class="spacer"></span>
+      <span class="muted small" id="count"></span>
+      <button type="button" id="refresh">Refresh</button>
+    </div>
+
+    <div id="warnings"></div>
+
+    <div class="toolbar" id="pager" hidden>
+      <button type="button" id="prev">← Previous</button>
+      <button type="button" id="next">Next →</button>
+    </div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/queue.js"></script>
+</body>
+</html>

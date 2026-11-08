@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>HealthWatch admin</title>
+</head>
+<body>
+  <!-- Entry point: go to the queue if logged in, otherwise to login. -->
+  <script src="js/api.js"></script>
+  <script>
+    window.location.replace(getToken() ? "queue.html" : "login.html");
+  </script>
+</body>
+</html>
