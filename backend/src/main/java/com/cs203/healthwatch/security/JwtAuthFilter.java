@@ -54,7 +54,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             String role = claims.get("role", String.class);
 
             Optional<User> userOpt = userRepository.findByUsername(username);
-            if (userOpt.isPresent()) {
+            // an anonymised (deleted) account must never authenticate, even with a still-valid token
+            if (userOpt.isPresent() && !userOpt.get().isDeleted()) {
                 var authToken = new UsernamePasswordAuthenticationToken(
                         new AuthenticatedUser(userOpt.get().getId(), username),
                         null,
