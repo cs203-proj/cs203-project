@@ -137,6 +137,13 @@ robust z-score (detection only fires above 3):
 
 An end user has a profile that drives per-audience warnings (CG-154) and `GET /me/warnings` (CG-22).
 
+| Endpoint | What it does |
+|----------|--------------|
+| `GET /me/profile` | The caller's `region`, `audience` and `healthConditions`. Empty until first set. |
+| `PUT /me/profile` | Replaces the profile. Unknown codes give `400`; the message names the field and value. |
+
+All `/me` routes need a bearer token (any role). The user is always the one in the token; there is no user id in any path or body. No token or an invalid token gives `401`.
+
 ### Frozen codes (shared with CG-154 and CG-22)
 
 - `region`: `central`, `north`, `south`, `east`, `west` (lowercase, same as `pm.regions`).
