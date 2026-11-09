@@ -12,14 +12,22 @@ public record WarningResponse(
         @Schema(example = "7c9e6679-7425-40de-944b-e07fc1f90ae7") UUID id,
         @Schema(description = "Event the warning was drafted from", example = "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b")
         UUID eventId,
-        @Schema(example = "GENERAL_PUBLIC") String audience,
+        @Schema(description = "Who the draft is for. Same codes as the profile audience (CG-6)", example = "VULNERABLE",
+                allowableValues = {"GENERAL_PUBLIC", "VULNERABLE", "HEALTHCARE_WORKER"}) String audience,
         @Schema(example = "HIGH") WarningSeverity severity,
         @Schema(example = "PENDING_REVIEW") WarningStatus status,
         @Schema(description = "The AI's original draft, never overwritten") String warningText,
+        @Schema(description = "Optional AI-written \"why this matters for this audience\" line (CG-154), built from "
+                + "the event's AI explanation. Never contains advice. Null if there is none. Shown to end users "
+                + "labelled as AI-generated",
+                example = "Fine particles at these levels can worsen breathing for people with asthma or heart "
+                        + "disease, and the rise may be consistent with regional haze.")
+        String aiLine,
         @Schema(description = "When the draft was generated", example = "2026-10-14T02:10:00Z") Instant createdAt
 ) {
     public static WarningResponse from(Warning warning) {
         return new WarningResponse(warning.getId(), warning.getEventId(), warning.getAudience(),
-                warning.getSeverity(), warning.getStatus(), warning.getWarningText(), warning.getCreatedAt());
+                warning.getSeverity(), warning.getStatus(), warning.getWarningText(), warning.getAiLine(),
+                warning.getCreatedAt());
     }
 }

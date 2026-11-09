@@ -69,7 +69,8 @@ public class EventService {
 
     /**
      * Moves an event to a new status and records the change in the audit log. Confirming an event also drafts its
-     * general-public warning (CG-21). All writes share one transaction: if any fails, none is kept.
+     * warnings, one per audience (CG-21, CG-154). All writes share one transaction: if any fails, none is kept. The
+     * optional AI line on those drafts is added afterwards, outside this transaction.
      *
      * @param actorId id of the authenticated user making the change (from the token, never the request body)
      */

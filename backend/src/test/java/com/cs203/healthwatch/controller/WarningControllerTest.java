@@ -73,7 +73,7 @@ class WarningControllerTest {
 
     private static WarningResponse warning(WarningSeverity severity) {
         return new WarningResponse(UUID.randomUUID(), UUID.randomUUID(), "GENERAL_PUBLIC", severity,
-                WarningStatus.PENDING_REVIEW, "PM2.5 is elevated.", Instant.parse("2026-10-14T02:10:00Z"));
+                WarningStatus.PENDING_REVIEW, "PM2.5 is elevated.", null, Instant.parse("2026-10-14T02:10:00Z"));
     }
 
     @Test
