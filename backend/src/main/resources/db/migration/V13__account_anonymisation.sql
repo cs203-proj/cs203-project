@@ -1,4 +1,4 @@
--- V12: account anonymisation (CG-7). The row and id are kept so audit_log stays valid.
+-- V13: account anonymisation (CG-7). The row and id are kept so audit_log stays valid.
 
 alter table users add column deleted_at timestamptz;
 
