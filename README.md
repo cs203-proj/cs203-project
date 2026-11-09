@@ -7,7 +7,7 @@ Public health surveillance and early warning system — HealthWatch.
 Install these once per machine:
 
 - **Docker Desktop** — runs Postgres for local dev. https://www.docker.com/products/docker-desktop/
-- **JDK 21+** — required to build/run the backend. (Maven itself is *not* required — the project uses the Maven Wrapper, which downloads Maven automatically.)
+- **JDK 21 required (newer JDKs break Lombok)** — to build/run the backend. (Maven itself is *not* required — the project uses the Maven Wrapper, which downloads Maven automatically.)
 
 You do **not** need to install Postgres or Maven yourself.
 
