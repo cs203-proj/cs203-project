@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -23,6 +24,7 @@ import com.cs203.healthwatch.repository.UserRepository;
 import com.cs203.healthwatch.security.JwtService;
 import com.cs203.healthwatch.security.SecurityConfig;
 import com.cs203.healthwatch.service.WarningService;
+import com.cs203.healthwatch.service.WarningReviewService;
 import com.cs203.healthwatch.service.AuditService;
 import com.cs203.healthwatch.warnings.WarningSeverity;
 import com.cs203.healthwatch.warnings.WarningStatus;
@@ -39,6 +41,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -52,6 +55,7 @@ class WarningControllerTest {
     @Autowired MockMvc mockMvc;
     @Autowired JwtService jwtService;
     @MockBean WarningService warningService;
+    @MockBean WarningReviewService warningReviewService;
     @MockBean AuditService auditService;
     @MockBean UserRepository userRepository;
 
@@ -73,7 +77,8 @@ class WarningControllerTest {
 
     private static WarningResponse warning(WarningSeverity severity) {
         return new WarningResponse(UUID.randomUUID(), UUID.randomUUID(), "GENERAL_PUBLIC", severity,
-                WarningStatus.PENDING_REVIEW, "PM2.5 is elevated.", Instant.parse("2026-10-14T02:10:00Z"));
+                WarningStatus.PENDING_REVIEW, "PM2.5 is elevated.", null,
+                Instant.parse("2026-10-14T02:10:00Z"));
     }
 
     @Test
@@ -138,5 +143,117 @@ class WarningControllerTest {
         mockMvc.perform(get("/warnings").param("status", "FOO").header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    // --- review actions (CG-28) ---------------------------------------------------------------------------------
+
+    @Test
+    void approve_passesTheTokenUserAsActor() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(warningReviewService.approve(any(), any())).thenReturn(warning(WarningSeverity.HIGH));
+
+        mockMvc.perform(post("/warnings/{id}/approve", id).header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        verify(warningReviewService).approve(eq(id), any(UUID.class));
+    }
+
+    @Test
+    void edit_passesTheNewTextAndReturnsBothVersions() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(warningReviewService.edit(any(), any(), any())).thenReturn(new WarningResponse(
+                id, UUID.randomUUID(), "GENERAL_PUBLIC", WarningSeverity.HIGH, WarningStatus.PENDING_REVIEW,
+                "PM2.5 is elevated.", "Air quality is poor. Stay indoors.",
+                Instant.parse("2026-10-14T02:10:00Z")));
+
+        mockMvc.perform(post("/warnings/{id}/edit", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"warningText\":\"Air quality is poor. Stay indoors.\"}")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.warningText").value("PM2.5 is elevated."))
+                .andExpect(jsonPath("$.editedText").value("Air quality is poor. Stay indoors."));
+
+        verify(warningReviewService).edit(eq(id), eq("Air quality is poor. Stay indoors."), any(UUID.class));
+    }
+
+    @Test
+    void edit_blankTextIs400() throws Exception {
+        mockMvc.perform(post("/warnings/{id}/edit", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"warningText\":\"  \"}")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(warningReviewService);
+    }
+
+    @Test
+    void downgrade_passesSeverityAndReason() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(warningReviewService.downgrade(any(), any(), any(), any()))
+                .thenReturn(warning(WarningSeverity.MEDIUM));
+
+        mockMvc.perform(post("/warnings/{id}/downgrade", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"severity\":\"MEDIUM\",\"reason\":\"Readings fell back to baseline.\"}")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        verify(warningReviewService)
+                .downgrade(eq(id), eq("MEDIUM"), eq("Readings fell back to baseline."), any(UUID.class));
+    }
+
+    @Test
+    void downgrade_withoutReasonIs400() throws Exception {
+        mockMvc.perform(post("/warnings/{id}/downgrade", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"severity\":\"MEDIUM\"}")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(warningReviewService);
+    }
+
+    @Test
+    void suppress_requiresAReason() throws Exception {
+        mockMvc.perform(post("/warnings/{id}/suppress", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(warningReviewService);
+    }
+
+    @Test
+    void suppress_passesTheReason() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(warningReviewService.suppress(any(), any(), any())).thenReturn(warning(WarningSeverity.HIGH));
+
+        mockMvc.perform(post("/warnings/{id}/suppress", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Duplicate of an approved warning.\"}")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        verify(warningReviewService).suppress(eq(id), eq("Duplicate of an approved warning."), any(UUID.class));
+    }
+
+    @Test
+    void reviewActions_withoutTokenAre401() throws Exception {
+        mockMvc.perform(post("/warnings/{id}/approve", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(warningReviewService);
+    }
+
+    @Test
+    void reviewActions_asNonAdminAre403() throws Exception {
+        mockMvc.perform(post("/warnings/{id}/approve", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + viewerToken))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(warningReviewService);
     }
 }

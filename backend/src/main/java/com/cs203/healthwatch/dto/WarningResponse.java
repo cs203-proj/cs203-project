@@ -16,10 +16,14 @@ public record WarningResponse(
         @Schema(example = "HIGH") WarningSeverity severity,
         @Schema(example = "PENDING_REVIEW") WarningStatus status,
         @Schema(description = "The AI's original draft, never overwritten") String warningText,
+        @Schema(description = "The admin's edited wording (CG-28), or null if it has not been edited. The AI original "
+                + "stays in warningText, so a reviewer can always compare the two.")
+        String editedText,
         @Schema(description = "When the draft was generated", example = "2026-10-14T02:10:00Z") Instant createdAt
 ) {
     public static WarningResponse from(Warning warning) {
         return new WarningResponse(warning.getId(), warning.getEventId(), warning.getAudience(),
-                warning.getSeverity(), warning.getStatus(), warning.getWarningText(), warning.getCreatedAt());
+                warning.getSeverity(), warning.getStatus(), warning.getWarningText(), warning.getEditedText(),
+                warning.getCreatedAt());
     }
 }
