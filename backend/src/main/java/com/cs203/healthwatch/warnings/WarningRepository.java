@@ -1,5 +1,6 @@
 package com.cs203.healthwatch.warnings;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -29,4 +30,20 @@ public interface WarningRepository extends JpaRepository<Warning, UUID> {
     boolean existsByEventIdAndAudience(UUID eventId, String audience);
 
     List<Warning> findByEventIdOrderByCreatedAtAscIdAsc(UUID eventId);
+
+    /**
+     * End-user feed (CG-22): APPROVED warnings for this audience whose event is in this region and that were approved
+     * at or after {@code since}. Most severe first, then newest approval first, then id so the order is total.
+     * Status is matched in the query itself, so pending and suppressed warnings can never be returned.
+     */
+    @Query("select w from Warning w, DetectedEvent e where e.id = w.eventId"
+            + " and w.status = com.cs203.healthwatch.warnings.WarningStatus.APPROVED"
+            + " and e.region = :region and w.audience = :audience and w.approvedAt >= :since"
+            + " order by case w.severity"
+            + " when com.cs203.healthwatch.warnings.WarningSeverity.CRITICAL then 0"
+            + " when com.cs203.healthwatch.warnings.WarningSeverity.HIGH then 1"
+            + " when com.cs203.healthwatch.warnings.WarningSeverity.MEDIUM then 2"
+            + " when com.cs203.healthwatch.warnings.WarningSeverity.LOW then 3"
+            + " else 4 end, w.approvedAt desc, w.id asc")
+    List<Warning> findActiveFor(String region, String audience, Instant since);
 }
