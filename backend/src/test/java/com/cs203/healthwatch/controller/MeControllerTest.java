@@ -1,20 +1,24 @@
 package com.cs203.healthwatch.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.cs203.healthwatch.common.exception.BadRequestException;
+import com.cs203.healthwatch.common.exception.ForbiddenException;
 import com.cs203.healthwatch.dto.ProfileResponse;
 import com.cs203.healthwatch.model.User;
 import com.cs203.healthwatch.repository.UserRepository;
 import com.cs203.healthwatch.security.JwtService;
 import com.cs203.healthwatch.security.SecurityConfig;
 import com.cs203.healthwatch.service.ProfileService;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,6 +60,7 @@ class MeControllerTest {
         mockMvc.perform(get("/me/profile")).andExpect(status().isUnauthorized());
         mockMvc.perform(put("/me/profile").contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/me")).andExpect(status().isUnauthorized());
         verifyNoInteractions(profileService);
     }
 
@@ -84,7 +89,7 @@ class MeControllerTest {
         mockMvc.perform(put("/me/profile").header("Authorization", "Bearer " + aliceToken)
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isOk());
-        org.mockito.Mockito.verify(profileService).update(Mockito.eq(ALICE_ID), any());
+        verify(profileService).update(Mockito.eq(ALICE_ID), any());
     }
 
     @Test
@@ -96,5 +101,33 @@ class MeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("region: unknown value 'mars'"));
+    }
+
+    @Test
+    void delete_returns204() throws Exception {
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isNoContent());
+        verify(profileService).deleteAccount(ALICE_ID);
+    }
+
+    @Test
+    void delete_admin_isForbidden() throws Exception {
+        org.mockito.Mockito.doThrow(new ForbiddenException("Admin accounts cannot be deleted through this endpoint"))
+                .when(profileService).deleteAccount(ALICE_ID);
+
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void tokenOfDeletedUser_isUnauthorized() throws Exception {
+        User deleted = new User("alice", null, "user");
+        deleted.setId(ALICE_ID);
+        deleted.setDeletedAt(Instant.now());
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(deleted));
+
+        mockMvc.perform(get("/me/profile").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(profileService);
     }
 }
