@@ -11,7 +11,9 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 /** The caller's own account. The user always comes from the bearer token, never from a path or body id. */
 @RestController
 @RequestMapping("/me")
-@Tag(name = "Me", description = "View and edit your own profile")
+@Tag(name = "Me", description = "View, edit and delete your own profile")
 public class MeController {
 
     private final ProfileService profileService;
@@ -53,5 +55,20 @@ public class MeController {
             @RequestBody ProfileRequest request,
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user) {
         return profileService.update(user.id(), request);
+    }
+
+    @DeleteMapping
+    @Operation(summary = "Delete my account",
+            description = "Anonymises the account: username replaced, password, region, audience and health "
+                    + "conditions wiped. The user id is kept so audit entries stay valid. Existing tokens stop "
+                    + "working and the old credentials can no longer log in.")
+    @ApiResponse(responseCode = "204", description = "Account anonymised")
+    @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired token", content = @Content)
+    @ApiResponse(responseCode = "403", description = "Admin accounts cannot be deleted here",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
+    public ResponseEntity<Void> deleteAccount(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user) {
+        profileService.deleteAccount(user.id());
+        return ResponseEntity.noContent().build();
     }
 }
