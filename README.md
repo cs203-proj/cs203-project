@@ -151,6 +151,32 @@ All `/me` routes need a bearer token (any role). The user is always the one in t
 - `healthConditions`: a list of codes from `HealthCondition.java`; never free text. Duplicates are ignored.
 - Case matters: `North` is rejected. Changing a code needs CG-6, CG-154 and CG-22 to agree.
 
+## My warnings (CG-22, CG-23)
+
+`GET /me/warnings` is the end user's feed. Any valid token works; no token gives `401`. The user comes from the token.
+
+A warning is returned only if all of these hold:
+
+- its status is `APPROVED` (pending and suppressed warnings are never returned, including downgraded-then-suppressed ones);
+- its event's `region` equals the user's region and its `audience` equals the user's audience;
+- it was approved within `app.warnings.feed.active-window` (default `24h`, env `WARNING_ACTIVE_WINDOW`). Expiry (CG-31) is
+  descoped, so this window is what retires a warning.
+
+Order: most severe first, then newest approval first. A user with no region or no audience gets `200`, an empty list and a
+message to complete their profile.
+
+| Field | Source |
+| --- | --- |
+| `text` | `warnings.edited_text` if an admin edited the warning, otherwise the original draft `warning_text` |
+| `confidence.level` / `confidence.meaning` | The event's CG-16 band (`LOW` / `MEDIUM` / `HIGH`) and a fixed plain-language sentence for it. `level` is null and the meaning says "not been assessed" for events scored before CG-16 |
+| `whyThisApplies` | Built in code from the user's profile, e.g. "You are in the east region and receive advice for vulnerable groups." Health conditions are named only for the vulnerable audience, and only the ones this user entered |
+| `aiLine` | `warnings.ai_line` (CG-154), always `{"label": "AI-generated"}`; null if there is none |
+| `dataQualityNote` | The CG-135 note, only when that explanation's `dataComplete` is false (stale or partial data); otherwise null |
+
+Migration `V12` adds `warnings.approved_at`, `warnings.edited_text` and `warnings.ai_line`. The approve and edit actions
+(CG-28) must set `approved_at` when status becomes `APPROVED` and write the admin's wording to `edited_text`, never to
+`warning_text`. CG-154 writes `ai_line`.
+
 ## Project structure
 
 - `backend/` — Spring Boot 3.3 (Java 21) API: web, JPA, Postgres, Flyway, Spring Security, JWT (jjwt), OpenAPI/Swagger.
