@@ -160,8 +160,9 @@ All `/me` routes need a bearer token (any role). The user is always the one in t
 - `password_hash`, `region`, `audience` and all health conditions are cleared; `deleted_at` is set. All of this happens in one transaction.
 - No `audit_log` row is touched. Audit trails show the anonymised username for that actor.
 - The old credentials cannot log in, and tokens for the account stop working at once: `JwtAuthFilter` ignores deleted users, so any `/me` call, including `GET /me/warnings`, returns `401`.
+- Tokens identify the account by its id (`uid` claim), and `JwtAuthFilter` looks the account up by id, never by username. This matters because the old name is free again: a token issued to a deleted `alice` can never act as a new account that is also called `alice`. Tokens without a `uid` are rejected, so everyone logs in again once after this change is deployed.
 - Admin accounts cannot be deleted through this endpoint (`403`).
-- A database check makes it impossible to have `deleted_at` set while a password, region or audience remains.
+- A database check (migration `V13`) makes it impossible to have `deleted_at` set while a password, region or audience remains.
 - `users` has no consent columns yet. Whoever adds them must also clear them in `ProfileService.deleteAccount`.
 - Any future query that lists users (for example by audience) should filter `deleted_at IS NULL`.
 

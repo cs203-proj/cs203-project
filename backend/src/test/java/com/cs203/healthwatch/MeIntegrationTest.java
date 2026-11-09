@@ -70,9 +70,9 @@ class MeIntegrationTest {
         alice = userRepository.save(new User("alice", passwordEncoder.encode("alice-pw"), "user"));
         bob = userRepository.save(new User("bob", passwordEncoder.encode("bob-pw"), "user"));
         admin = userRepository.save(new User("root", passwordEncoder.encode("root-pw"), "admin"));
-        aliceToken = jwtService.generateToken("alice", "user");
-        bobToken = jwtService.generateToken("bob", "user");
-        adminToken = jwtService.generateToken("root", "admin");
+        aliceToken = jwtService.generateToken(alice.getId(), "alice", "user");
+        bobToken = jwtService.generateToken(bob.getId(), "bob", "user");
+        adminToken = jwtService.generateToken(admin.getId(), "root", "admin");
     }
 
     /** The test database is shared with other test classes, whose cleanup does `delete from users`. */
@@ -212,6 +212,7 @@ class MeIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    /** The token carries the user id, and the filter finds the row by id, so it is the deleted check that blocks it. */
     @Test
     void afterDelete_oldTokenIsRejected() throws Exception {
         mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
@@ -221,6 +222,27 @@ class MeIntegrationTest {
         putProfile(aliceToken, PROFILE).andExpect(status().isUnauthorized());
         mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void afterDelete_oldTokenCannotReachANewAccountWithTheSameName() throws Exception {
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isNoContent());
+        // the old name is free again, so a new account can take it
+        User newAlice = userRepository.save(new User("alice", passwordEncoder.encode("new-pw"), "user"));
+        String newAliceToken = jwtService.generateToken(newAlice.getId(), "alice", "user");
+        putProfile(newAliceToken, PROFILE).andExpect(status().isOk());
+
+        // the old token has the same name in it but belongs to the deleted account
+        getProfile(aliceToken).andExpect(status().isUnauthorized());
+        putProfile(aliceToken, "{\"region\":\"west\",\"audience\":\"GENERAL_PUBLIC\",\"healthConditions\":[]}")
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isUnauthorized());
+
+        // the new account is untouched and still works
+        getProfile(newAliceToken).andExpect(status().isOk()).andExpect(jsonPath("$.region").value("north"));
+        assertThat(userRepository.findById(newAlice.getId()).orElseThrow().isDeleted()).isFalse();
     }
 
     @Test

@@ -51,8 +51,8 @@ class MeControllerTest {
     void users() {
         User alice = new User("alice", "hash", "user");
         alice.setId(ALICE_ID);
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
-        aliceToken = jwtService.generateToken("alice", "user");
+        when(userRepository.findById(ALICE_ID)).thenReturn(Optional.of(alice));
+        aliceToken = jwtService.generateToken(ALICE_ID, "alice", "user");
     }
 
     @Test
@@ -121,10 +121,11 @@ class MeControllerTest {
 
     @Test
     void tokenOfDeletedUser_isUnauthorized() throws Exception {
-        User deleted = new User("alice", null, "user");
+        // what the database really holds after deletion: the same id, an anonymised name, deleted_at set
+        User deleted = new User("deleted-" + UUID.randomUUID(), null, "user");
         deleted.setId(ALICE_ID);
         deleted.setDeletedAt(Instant.now());
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(deleted));
+        when(userRepository.findById(ALICE_ID)).thenReturn(Optional.of(deleted));
 
         mockMvc.perform(get("/me/profile").header("Authorization", "Bearer " + aliceToken))
                 .andExpect(status().isUnauthorized());

@@ -18,6 +18,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
@@ -50,14 +51,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         try {
             Claims claims = jwtService.validateAndParse(token);
-            String username = claims.getSubject();
             String role = claims.get("role", String.class);
+            UUID userId = userIdFrom(claims);
 
-            Optional<User> userOpt = userRepository.findByUsername(username);
+            // look the account up by id, never by name: a deleted account's name can be taken by a new account
+            Optional<User> userOpt = userId == null ? Optional.empty() : userRepository.findById(userId);
             // an anonymised (deleted) account must never authenticate, even with a still-valid token
-            if (userOpt.isPresent() && !userOpt.get().isDeleted()) {
+            if (userOpt.isPresent() && !userOpt.get().isDeleted() && role != null) {
+                User user = userOpt.get();
                 var authToken = new UsernamePasswordAuthenticationToken(
-                        new AuthenticatedUser(userOpt.get().getId(), username),
+                        new AuthenticatedUser(user.getId(), user.getUsername()),
                         null,
                         List.of(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
                 );
@@ -69,5 +72,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /** Tokens without a valid {@code uid} claim (for example ones issued before it existed) do not authenticate. */
+    private static UUID userIdFrom(Claims claims) {
+        String uid = claims.get("uid", String.class);
+        if (uid == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(uid);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 }
