@@ -151,6 +151,16 @@ All `/me` routes need a bearer token (any role). The user is always the one in t
 - `healthConditions`: a list of codes from `HealthCondition.java`; never free text. Duplicates are ignored.
 - Case matters: `North` is rejected. Changing a code needs CG-6, CG-154 and CG-22 to agree.
 
+### Account deletion anonymises instead of hard-deleting
+
+`audit_log` is append-only (trigger in `V3`) and references `users` as the actor. Deleting the user row would either break that foreign key or force changes to audit history, so `DELETE /me` keeps the row and its id and removes the personal data:
+
+- `username` becomes `deleted-<random uuid>`, not derived from the old name, so the old name is free again.
+- `password_hash`, `region`, `audience` and all health conditions are cleared; `deleted_at` is set.
+- No `audit_log` row is touched. Audit trails show the anonymised username for that actor.
+- The old credentials cannot log in, and tokens for the account stop working at once: `JwtAuthFilter` ignores deleted users, so any `/me` call returns `401`.
+- A database check makes it impossible to have `deleted_at` set while a password, region or audience remains.
+
 ## Project structure
 
 - `backend/` — Spring Boot 3.3 (Java 21) API: web, JPA, Postgres, Flyway, Spring Security, JWT (jjwt), OpenAPI/Swagger.
