@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.util.Date;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -23,12 +24,17 @@ public class JwtService {
         this.accessTokenTtlMs = TimeUnit.MINUTES.toMillis(accessTokenTtlMinutes);
     }
 
-    public String generateToken(String username, String role) {
+    /**
+     * The token identifies the account by its id ({@code uid}). The username is only informational: it can be
+     * reused after an account is deleted (CG-7), so it must never be what decides who the caller is.
+     */
+    public String generateToken(UUID userId, String username, String role) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + accessTokenTtlMs);
 
         return Jwts.builder()
                 .subject(username)
+                .claim("uid", userId.toString())
                 .claim("role", role)
                 .issuedAt(now)
                 .expiration(expiry)

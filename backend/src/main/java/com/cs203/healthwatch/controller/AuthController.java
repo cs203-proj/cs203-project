@@ -32,12 +32,13 @@ public class AuthController {
         Optional<User> userOpt = userRepository.findByUsername(req.username());
 
         // generic failure for both "no such user" and "wrong password"
-        if (userOpt.isEmpty() || !passwordEncoder.matches(req.password(), userOpt.get().getPasswordHash())) {
+        if (userOpt.isEmpty() || userOpt.get().isDeleted() || userOpt.get().getPasswordHash() == null
+                || !passwordEncoder.matches(req.password(), userOpt.get().getPasswordHash())) {
             return ResponseEntity.status(401).body(Map.of("error", "Invalid username or password"));
         }
 
         User user = userOpt.get();
-        String token = jwtService.generateToken(user.getUsername(), user.getRole());
+        String token = jwtService.generateToken(user.getId(), user.getUsername(), user.getRole());
 
         return ResponseEntity.ok(Map.of("token", token));
     }

@@ -1,5 +1,6 @@
 package com.cs203.healthwatch.controller;
 
+import java.util.UUID;
 import java.util.Map;
 import java.util.Optional;
 
@@ -49,9 +50,10 @@ class AuthControllerTest {
     @Test
     void validLogin_returnsToken() throws Exception {
         User user = new User("admin", "hashed-password", "admin");
+        user.setId(UUID.randomUUID());
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("correct-password", "hashed-password")).thenReturn(true);
-        when(jwtService.generateToken("admin", "admin")).thenReturn("fake.jwt.token");
+        when(jwtService.generateToken(user.getId(), "admin", "admin")).thenReturn("fake.jwt.token");
 
         mockMvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

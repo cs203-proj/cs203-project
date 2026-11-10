@@ -54,8 +54,8 @@ class WarningDraftIntegrationTest {
         jdbc.update("delete from audit_log");
         jdbc.update("delete from events");
         jdbc.update("delete from users");
-        userRepository.save(new User("admin", "hash", "admin"));
-        adminToken = jwtService.generateToken("admin", "admin");
+        User admin = userRepository.save(new User("admin", "hash", "admin"));
+        adminToken = jwtService.generateToken(admin.getId(), "admin", "admin");
     }
 
     private DetectedEvent event(double deviation, EventStatus status) {
@@ -177,12 +177,12 @@ class WarningDraftIntegrationTest {
 
     @Test
     void getWarningsNeedsAnAdminToken() throws Exception {
-        userRepository.save(new User("viewer", "hash", "viewer"));
+        User viewer = userRepository.save(new User("viewer", "hash", "viewer"));
         DetectedEvent event = event(5.5, EventStatus.CONFIRMED);
 
         mockMvc.perform(get("/events/{id}/warnings", event.getId())).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/events/{id}/warnings", event.getId())
-                        .header("Authorization", "Bearer " + jwtService.generateToken("viewer", "viewer")))
+                        .header("Authorization", "Bearer " + jwtService.generateToken(viewer.getId(), "viewer", "viewer")))
                 .andExpect(status().isForbidden());
     }
 }

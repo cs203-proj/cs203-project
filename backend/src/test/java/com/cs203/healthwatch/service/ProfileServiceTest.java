@@ -6,10 +6,14 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.cs203.healthwatch.common.exception.BadRequestException;
+import com.cs203.healthwatch.common.exception.ForbiddenException;
 import com.cs203.healthwatch.dto.ProfileRequest;
 import com.cs203.healthwatch.dto.ProfileResponse;
 import com.cs203.healthwatch.model.User;
 import com.cs203.healthwatch.repository.UserRepository;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,13 +26,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class ProfileServiceTest {
 
+    private static final Instant NOW = Instant.parse("2026-11-05T00:00:00Z");
+
     @Mock UserRepository userRepository;
     ProfileService service;
     User user;
 
     @BeforeEach
     void setUp() {
-        service = new ProfileService(userRepository);
+        service = new ProfileService(userRepository, Clock.fixed(NOW, ZoneOffset.UTC));
         user = new User("alice", "hash", "user");
         user.setId(UUID.randomUUID());
         lenient().when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
@@ -87,5 +93,35 @@ class ProfileServiceTest {
         assertThatThrownBy(() -> service.update(user.getId(), new ProfileRequest("mars", "VULNERABLE", List.of())))
                 .isInstanceOf(BadRequestException.class);
         assertThat(user.getRegion()).isEqualTo("east");
+    }
+
+    @Test
+    void deleteAccount_wipesPersonalDataButKeepsId() {
+        user.setRegion("north");
+        user.setAudience("VULNERABLE");
+        user.getHealthConditions().add("ASTHMA");
+        UUID id = user.getId();
+
+        service.deleteAccount(id);
+
+        assertThat(user.getId()).isEqualTo(id);
+        assertThat(user.getUsername()).startsWith("deleted-").doesNotContain("alice");
+        assertThat(user.getPasswordHash()).isNull();
+        assertThat(user.getRegion()).isNull();
+        assertThat(user.getAudience()).isNull();
+        assertThat(user.getHealthConditions()).isEmpty();
+        assertThat(user.getDeletedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void deleteAccount_adminIsForbiddenAndUnchanged() {
+        User admin = new User("root", "hash", "admin");
+        admin.setId(UUID.randomUUID());
+        when(userRepository.findById(admin.getId())).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> service.deleteAccount(admin.getId())).isInstanceOf(ForbiddenException.class);
+        assertThat(admin.getUsername()).isEqualTo("root");
+        assertThat(admin.getPasswordHash()).isEqualTo("hash");
+        assertThat(admin.getDeletedAt()).isNull();
     }
 }

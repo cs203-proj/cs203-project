@@ -7,6 +7,7 @@ import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 import lombok.Getter;
@@ -23,7 +24,8 @@ public class User extends BaseEntity {
     @Column(unique = true, nullable = false)
     private String username;
 
-    @Column(name = "password_hash", nullable = false)
+    /** Null once the account is anonymised (CG-7). */
+    @Column(name = "password_hash")
     private String passwordHash;
 
     @Column(nullable = false)
@@ -43,9 +45,17 @@ public class User extends BaseEntity {
     @Column(name = "condition_code", nullable = false)
     private Set<String> healthConditions = new HashSet<>();
 
+    /** CG-7. Set when the account is anonymised; the row and id are kept so audit_log stays valid. */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     public User(String username, String passwordHash, String role) {
         this.username = username;
         this.passwordHash = passwordHash;
         this.role = role;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
     }
 }

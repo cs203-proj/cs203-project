@@ -52,7 +52,7 @@ class EventStatusChangeIntegrationTest {
         jdbc.update("delete from events");
         jdbc.update("delete from users");
         admin = userRepository.save(new User("admin", "hash", "admin"));
-        adminToken = jwtService.generateToken("admin", "admin");
+        adminToken = jwtService.generateToken(admin.getId(), "admin", "admin");
     }
 
     private DetectedEvent event(double deviation, EventStatus status) {
@@ -204,13 +204,13 @@ class EventStatusChangeIntegrationTest {
 
     @Test
     void unauthorizedAndForbiddenChangeNothing() throws Exception {
-        userRepository.save(new User("viewer", "hash", "viewer"));
+        User viewer = userRepository.save(new User("viewer", "hash", "viewer"));
         DetectedEvent event = event(4.2, EventStatus.NEW);
 
         mockMvc.perform(patch("/events/{id}/status", event.getId())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"UNDER_REVIEW\"}"))
                 .andExpect(status().isUnauthorized());
-        changeStatus(event.getId(), "{\"status\":\"UNDER_REVIEW\"}", jwtService.generateToken("viewer", "viewer"))
+        changeStatus(event.getId(), "{\"status\":\"UNDER_REVIEW\"}", jwtService.generateToken(viewer.getId(), "viewer", "viewer"))
                 .andExpect(status().isForbidden());
 
         assertThat(statusInDb(event.getId())).isEqualTo(EventStatus.NEW);
