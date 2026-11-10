@@ -27,6 +27,9 @@ server:
   port: ${PORT:8080}
 
 app:
+  warnings:
+    feed:
+      active-window: ${WARNING_ACTIVE_WINDOW:24h} # how long after approval a warning stays on GET /me/warnings (CG-22)
   jwt:
     secret: ${JWT_SECRET:change-this-dev-secret-change-this-dev-secret}
     access-token-ttl-minutes: ${JWT_ACCESS_TTL_MIN:30}
@@ -55,6 +58,10 @@ app:
     expected-interval: 60m # hourly PM2.5 feed
     stale-after: 2h
     max-evidence-readings: 12
+    retry: # CG-152: FAILED explanations are retried while the event is still NEW
+      interval: ${AI_EXPLANATION_RETRY_INTERVAL:PT5M} # ISO-8601 (also read by @Scheduled)
+      batch-size: ${AI_EXPLANATION_RETRY_BATCH_SIZE:5}
+      max-attempts: ${AI_EXPLANATION_RETRY_MAX_ATTEMPTS:3} # total tries per event, first try included
   seed:
     admin-username: ${ADMIN_SEED_USERNAME:#{null}}
     admin-password: ${ADMIN_SEED_PASSWORD:#{null}}

@@ -13,6 +13,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import javax.crypto.SecretKey;
+import java.util.UUID;
 import java.util.Date;
 import java.util.Optional;
 
@@ -61,11 +62,41 @@ class JwtAuthFilterTest {
     }
 
     @Test
+    void tokenWithoutUserId_returnsUnauthorized() throws Exception {
+        SecretKey key = Keys.hmacShaKeyFor(jwtSecret.getBytes());
+        // an old-style token: name only, no uid claim. It must not authenticate, even though the name exists.
+        User admin = new User("admin", "hash", "admin");
+        admin.setId(UUID.randomUUID());
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(admin));
+        String oldStyleToken = Jwts.builder()
+                .subject("admin")
+                .claim("role", "admin")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .signWith(key)
+                .compact();
+
+        mockMvc.perform(get("/events/ping")
+                        .header("Authorization", "Bearer " + oldStyleToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void tokenForUnknownUserId_returnsUnauthorized() throws Exception {
+        String token = jwtService.generateToken(UUID.randomUUID(), "admin", "admin");
+
+        mockMvc.perform(get("/events/ping")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void nonAdminRole_returnsForbidden() throws Exception {
         User user = new User("regularuser", "hashed-password", "user");
-        when(userRepository.findByUsername("regularuser")).thenReturn(Optional.of(user));
+        user.setId(UUID.randomUUID());
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
 
-        String token = jwtService.generateToken("regularuser", "user");
+        String token = jwtService.generateToken(user.getId(), "regularuser", "user");
 
         mockMvc.perform(get("/events/ping")
                         .header("Authorization", "Bearer " + token))

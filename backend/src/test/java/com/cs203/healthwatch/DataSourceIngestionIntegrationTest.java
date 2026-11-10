@@ -52,9 +52,9 @@ class DataSourceIngestionIntegrationTest {
 
     @BeforeEach
     void adminAndEnabledSource() {
-        userRepository.findByUsername("admin")
+        User admin = userRepository.findByUsername("admin")
                 .orElseGet(() -> userRepository.save(new User("admin", "hash", "admin")));
-        adminToken = jwtService.generateToken("admin", "admin");
+        adminToken = jwtService.generateToken(admin.getId(), "admin", "admin");
         // the row ingestion uses; created on first use like on a fresh database
         sourceId = registry.current(pm.name(), pm.type()).getId();
     }

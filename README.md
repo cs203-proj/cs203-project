@@ -7,7 +7,7 @@ Public health surveillance and early warning system — HealthWatch.
 Install these once per machine:
 
 - **Docker Desktop** — runs Postgres for local dev. https://www.docker.com/products/docker-desktop/
-- **JDK 21+** — required to build/run the backend. (Maven itself is *not* required — the project uses the Maven Wrapper, which downloads Maven automatically.)
+- **JDK 21 required (newer JDKs break Lombok)** — to build/run the backend. (Maven itself is *not* required — the project uses the Maven Wrapper, which downloads Maven automatically.)
 
 You do **not** need to install Postgres or Maven yourself.
 
@@ -133,9 +133,17 @@ robust z-score (detection only fires above 3):
   "Confidence: not yet assessed."
 - Per-audience drafts (vulnerable groups, healthcare workers) are Sprint 3.
 
-## Profile (CG-6)
+## Profile and account deletion (CG-6, CG-7)
 
 An end user has a profile that drives per-audience warnings (CG-154) and `GET /me/warnings` (CG-22).
+
+| Endpoint | What it does |
+|----------|--------------|
+| `GET /me/profile` | The caller's `region`, `audience` and `healthConditions`. Empty until first set. |
+| `PUT /me/profile` | Replaces the profile. Unknown codes give `400`; the message names the field and value. |
+| `DELETE /me` | Anonymises the caller's account (see below). `204` on success; admin accounts get `403`. |
+
+All `/me` routes need a bearer token (any role). The user is always the one in the token; there is no user id in any path or body. No token or an invalid token gives `401`. Admins can view and edit a profile but cannot delete their account through this endpoint.
 
 ### Frozen codes (shared with CG-154 and CG-22)
 
@@ -143,6 +151,46 @@ An end user has a profile that drives per-audience warnings (CG-154) and `GET /m
 - `audience`: `GENERAL_PUBLIC`, `VULNERABLE`, `HEALTHCARE_WORKER` (uppercase, same as `warnings.audience`).
 - `healthConditions`: a list of codes from `HealthCondition.java`; never free text. Duplicates are ignored.
 - Case matters: `North` is rejected. Changing a code needs CG-6, CG-154 and CG-22 to agree.
+
+### Account deletion anonymises instead of hard-deleting
+
+`audit_log` is append-only (trigger in `V3`) and references `users` as the actor. Deleting the user row would either break that foreign key or force changes to audit history, so `DELETE /me` keeps the row and its id and removes the personal data:
+
+- `username` becomes `deleted-<random uuid>`, not derived from the old name, so the old name is free again.
+- `password_hash`, `region`, `audience` and all health conditions are cleared; `deleted_at` is set. All of this happens in one transaction.
+- No `audit_log` row is touched. Audit trails show the anonymised username for that actor.
+- The old credentials cannot log in, and tokens for the account stop working at once: `JwtAuthFilter` ignores deleted users, so any `/me` call, including `GET /me/warnings`, returns `401`.
+- Tokens identify the account by its id (`uid` claim), and `JwtAuthFilter` looks the account up by id, never by username. This matters because the old name is free again: a token issued to a deleted `alice` can never act as a new account that is also called `alice`. Tokens without a `uid` are rejected, so everyone logs in again once after this change is deployed.
+- Admin accounts cannot be deleted through this endpoint (`403`).
+- A database check (migration `V13`) makes it impossible to have `deleted_at` set while a password, region or audience remains.
+- `users` has no consent columns yet. Whoever adds them must also clear them in `ProfileService.deleteAccount`.
+- Any future query that lists users (for example by audience) should filter `deleted_at IS NULL`.
+
+## My warnings (CG-22, CG-23)
+
+`GET /me/warnings` is the end user's feed. Any valid token works; no token gives `401`. The user comes from the token.
+
+A warning is returned only if all of these hold:
+
+- its status is `APPROVED` (pending and suppressed warnings are never returned, including downgraded-then-suppressed ones);
+- its event's `region` equals the user's region and its `audience` equals the user's audience;
+- it was approved within `app.warnings.feed.active-window` (default `24h`, env `WARNING_ACTIVE_WINDOW`). Expiry (CG-31) is
+  descoped, so this window is what retires a warning.
+
+Order: most severe first, then newest approval first. A user with no region or no audience gets `200`, an empty list and a
+message to complete their profile.
+
+| Field | Source |
+| --- | --- |
+| `text` | `warnings.edited_text` if an admin edited the warning, otherwise the original draft `warning_text` |
+| `confidence.level` / `confidence.meaning` | The event's CG-16 band (`LOW` / `MEDIUM` / `HIGH`) and a fixed plain-language sentence for it. `level` is null and the meaning says "not been assessed" for events scored before CG-16 |
+| `whyThisApplies` | Built in code from the user's profile, e.g. "You are in the east region and receive advice for vulnerable groups." Health conditions are named only for the vulnerable audience, and only the ones this user entered |
+| `aiLine` | `warnings.ai_line` (CG-154), always `{"label": "AI-generated"}`; null if there is none |
+| `dataQualityNote` | The CG-135 note, only when that explanation's `dataComplete` is false (stale or partial data); otherwise null |
+
+Migration `V12` adds `warnings.approved_at`, `warnings.edited_text` and `warnings.ai_line`. The approve and edit actions
+(CG-28) must set `approved_at` when status becomes `APPROVED` and write the admin's wording to `edited_text`, never to
+`warning_text`. CG-154 writes `ai_line`.
 
 ## Project structure
 
