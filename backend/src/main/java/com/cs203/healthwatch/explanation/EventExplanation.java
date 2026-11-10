@@ -55,4 +55,8 @@ public class EventExplanation extends BaseEntity {
 
     @Column(length = LONG_TEXT)
     private String error;
+
+    /** How many times the AI has been asked about this event (CG-152). A retry updates this row, never adds one. */
+    @Column(nullable = false)
+    private int attempts = 1;
 }

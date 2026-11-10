@@ -1,23 +1,33 @@
 package com.cs203.healthwatch.explanation;
 
 import com.cs203.healthwatch.common.exception.ResourceNotFoundException;
+import com.cs203.healthwatch.detection.BaselineRepository;
 import com.cs203.healthwatch.detection.BaselineSnapshot;
+import com.cs203.healthwatch.detection.DetectionProperties;
 import com.cs203.healthwatch.detection.ReadingSnapshot;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
+import com.cs203.healthwatch.events.EventStatus;
+import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Explains each newly detected event with AI (CG-135) and stores the result. Never changes the event and never
  * throws: if anything fails, the event stays NEW, the error is logged, and a FAILED row records why.
+ * CG-152: a FAILED row can be tried again ({@link #retry}); the retry updates that row, never adds a second one.
  */
 @Slf4j
 @Service
@@ -29,20 +39,45 @@ public class EventExplanationService {
     private final EventExplanationRepository explanations;
     private final EventRepository events;
     private final ExplanationProperties props;
+    private final ReadingRepository readings;    // only needed by buildContext (retries)
+    private final BaselineRepository baselines;   // only needed by buildContext (retries)
+    private final DetectionProperties detection;  // only needed by buildContext (retries)
     private final Clock clock;
+
+    /**
+     * The result of one AI try.
+     *
+     * @param row         the stored row (OK or FAILED)
+     * @param rateLimited true if the provider answered 429
+     * @param retryAfter  the provider's Retry-After, or null if it sent none
+     */
+    record Attempt(EventExplanation row, boolean rateLimited, Duration retryAfter) {}
 
     @Autowired
     public EventExplanationService(ExplanationClient client, EventExplanationRepository explanations,
-                                   EventRepository events, ExplanationProperties props) {
-        this(client, explanations, events, props, Clock.systemUTC());
+                                   EventRepository events, ExplanationProperties props,
+                                   ReadingRepository readings, BaselineRepository baselines,
+                                   DetectionProperties detection) {
+        this(client, explanations, events, props, readings, baselines, detection, Clock.systemUTC());
+    }
+
+    /** Live path only (no retries): what the CG-135 tests use. */
+    EventExplanationService(ExplanationClient client, EventExplanationRepository explanations,
+                            EventRepository events, ExplanationProperties props, Clock clock) {
+        this(client, explanations, events, props, null, null, null, clock);
     }
 
     EventExplanationService(ExplanationClient client, EventExplanationRepository explanations,
-                            EventRepository events, ExplanationProperties props, Clock clock) {
+                            EventRepository events, ExplanationProperties props,
+                            ReadingRepository readings, BaselineRepository baselines,
+                            DetectionProperties detection, Clock clock) {
         this.client = client;
         this.explanations = explanations;
         this.events = events;
         this.props = props;
+        this.readings = readings;
+        this.baselines = baselines;
+        this.detection = detection;
         this.clock = clock;
     }
 
@@ -67,43 +102,131 @@ public class EventExplanationService {
 
             // Live: judge freshness against now. Replay: against the detection time, since the data is historical.
             Instant reference = event.isReplay() ? event.getDetectedAt() : clock.instant();
-            List<ReadingSnapshot> evidence = lastN(readings, props.maxEvidenceReadings());
-            DataQuality quality = DataQuality.assess(evidence, reference, props.lookback(),
-                    props.expectedInterval(), props.staleAfter());
+            ExplanationContext context = assembleContext(event, baseline, readings, zThreshold,
+                    consecutiveReadings, reference);
 
-            ExplanationContext context = new ExplanationContext(event.getId(), event.getRegion(),
-                    event.getSignalType(), event.getDetectedAt(),
-                    event.getDeviation() == null ? Double.NaN : event.getDeviation(), event.isReplay(),
-                    baseline.median(), baseline.scaledMad(), zThreshold, consecutiveReadings, evidence, quality);
-
-            EventExplanation row = new EventExplanation();
-            row.setEventId(event.getId());
-            row.setDataComplete(quality.complete());
-            row.setDataQualityNote(quality.note());
-            row.setModel(client.modelName());
-
-            try {
-                AiExplanation ai = client.explain(context);
-                row.setStatus(ExplanationStatus.OK);
-                row.setAssessment(ai.assessment());
-                row.setLikelyCause(ai.likelyCause());
-                row.setExplanation(ai.explanation());
-                row.setEvidence(ai.evidence());
-                row.setAssumptions(ai.assumptions());
-            } catch (Exception e) {
-                log.error("AI explanation failed for event {} ({}/{}); event stays NEW: {}",
-                        event.getId(), event.getRegion(), event.getSignalType(), e.getMessage(), e);
-                row.setStatus(ExplanationStatus.FAILED);
-                row.setError(truncate(e.getMessage()));
-            }
-
-            EventExplanation saved = explanations.save(row);
-            log.info("Stored {} explanation for event {}", saved.getStatus(), event.getId());
-            return Optional.of(saved);
+            return Optional.of(callAndSave(event, context, null).row());
         } catch (Exception e) {
             log.error("Could not explain or store explanation for event {}: {}", event.getId(), e.getMessage(), e);
             return Optional.empty();
         }
+    }
+
+    /**
+     * Rebuilds what detection knew when it raised {@code event} (CG-152): the baseline and the newest valid readings
+     * up to the detection time. Live and replay events go through the same steps. Freshness is judged at the
+     * detection time for both, because by the time of a retry every reading would look stale against "now".
+     * The baseline is the latest one stored (earlier baselines are not kept).
+     *
+     * @throws ExplanationException if there is no usable baseline or the retry dependencies are missing
+     */
+    ExplanationContext buildContext(DetectedEvent event) {
+        if (readings == null || baselines == null || detection == null) {
+            throw new ExplanationException("Cannot rebuild the context: readings and baselines are not available");
+        }
+        BaselineSnapshot baseline = baselines
+                .latestBaseline(event.getRegion(), event.getSignalType(), detection.sourceType())
+                .filter(BaselineSnapshot::hasUsableSpread)
+                .orElseThrow(() -> new ExplanationException("Cannot rebuild the context: no usable baseline for "
+                        + event.getRegion() + "/" + event.getSignalType()));
+
+        List<ReadingSnapshot> recent = new ArrayList<>(readings
+                .findValidUpTo(event.getRegion(), detection.sourceType(), event.isReplay(),
+                        event.getDetectedAt().atOffset(ZoneOffset.UTC), PageRequest.of(0, props.maxEvidenceReadings()))
+                .stream()
+                .map(r -> new ReadingSnapshot(r.getRegion(), event.getSignalType(), r.getValue(),
+                        r.getObservedAt().toInstant()))
+                .toList());
+        Collections.reverse(recent); // the query is newest first; the prompt wants oldest first
+
+        return assembleContext(event, baseline, recent, detection.zThreshold(), detection.consecutiveReadings(),
+                event.getDetectedAt());
+    }
+
+    /**
+     * Asks the AI and stores the answer. With {@code existing == null} a new row is saved (attempts = 1); otherwise
+     * that row is updated in place and its attempts go up by one. AI failures become a FAILED row; only a failure to
+     * store the row is thrown.
+     */
+    Attempt callAndSave(DetectedEvent event, ExplanationContext context, EventExplanation existing) {
+        EventExplanation row = existing != null ? existing : new EventExplanation();
+        if (existing == null) {
+            row.setEventId(event.getId());
+        } else {
+            row.setAttempts(existing.getAttempts() + 1);
+        }
+        row.setDataComplete(context.dataQuality().complete());
+        row.setDataQualityNote(context.dataQuality().note());
+        row.setModel(client.modelName());
+
+        boolean rateLimited = false;
+        Duration retryAfter = null;
+        try {
+            AiExplanation ai = client.explain(context);
+            row.setStatus(ExplanationStatus.OK);
+            row.setAssessment(ai.assessment());
+            row.setLikelyCause(ai.likelyCause());
+            row.setExplanation(ai.explanation());
+            row.setEvidence(ai.evidence());
+            row.setAssumptions(ai.assumptions());
+            row.setError(null);
+        } catch (Exception e) {
+            log.error("AI explanation failed for event {} ({}/{}), attempt {}; event stays NEW: {}",
+                    event.getId(), event.getRegion(), event.getSignalType(), row.getAttempts(), e.getMessage(), e);
+            row.setStatus(ExplanationStatus.FAILED);
+            row.setError(truncate(e.getMessage()));
+            if (e instanceof RateLimitedException limited) {
+                rateLimited = true;
+                retryAfter = limited.retryAfter();
+            }
+        }
+
+        EventExplanation saved = explanations.save(row);
+        log.info("Stored {} explanation for event {} (attempt {})", saved.getStatus(), event.getId(),
+                saved.getAttempts());
+        return new Attempt(saved, rateLimited, retryAfter);
+    }
+
+    /**
+     * One retry of a FAILED explanation (CG-152). Skips (empty, no AI call, no attempt counted) if the event is gone
+     * or no longer NEW. If the context cannot be rebuilt, that counts as a failed try so one broken row can never
+     * block the rows behind it. Never throws.
+     */
+    Optional<Attempt> retry(EventExplanation failed) {
+        try {
+            Optional<DetectedEvent> found = events.findById(failed.getEventId());
+            if (found.isEmpty() || found.get().getStatus() != EventStatus.NEW) {
+                log.info("Not retrying explanation for event {}: event is gone or no longer NEW", failed.getEventId());
+                return Optional.empty();
+            }
+            DetectedEvent event = found.get();
+
+            ExplanationContext context;
+            try {
+                context = buildContext(event);
+            } catch (Exception e) {
+                log.warn("Could not rebuild the context for event {}: {}", event.getId(), e.getMessage());
+                failed.setAttempts(failed.getAttempts() + 1);
+                failed.setError(truncate(e.getMessage()));
+                return Optional.of(new Attempt(explanations.save(failed), false, null));
+            }
+            return Optional.of(callAndSave(event, context, failed));
+        } catch (Exception e) {
+            log.error("Retry of the explanation for event {} failed: {}", failed.getEventId(), e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
+    private ExplanationContext assembleContext(DetectedEvent event, BaselineSnapshot baseline,
+                                               List<ReadingSnapshot> readings, double zThreshold,
+                                               int consecutiveReadings, Instant reference) {
+        List<ReadingSnapshot> evidence = lastN(readings, props.maxEvidenceReadings());
+        DataQuality quality = DataQuality.assess(evidence, reference, props.lookback(),
+                props.expectedInterval(), props.staleAfter());
+        return new ExplanationContext(event.getId(), event.getRegion(),
+                event.getSignalType(), event.getDetectedAt(),
+                event.getDeviation() == null ? Double.NaN : event.getDeviation(), event.isReplay(),
+                baseline.median(), baseline.scaledMad(), zThreshold, consecutiveReadings, evidence, quality);
     }
 
     /** For GET /events/{id}/explanation. */

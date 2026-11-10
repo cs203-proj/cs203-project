@@ -1,6 +1,7 @@
 package com.cs203.healthwatch.service;
 
 import com.cs203.healthwatch.common.exception.BadRequestException;
+import com.cs203.healthwatch.common.exception.ForbiddenException;
 import com.cs203.healthwatch.common.exception.ResourceNotFoundException;
 import com.cs203.healthwatch.dto.ProfileRequest;
 import com.cs203.healthwatch.dto.ProfileResponse;
@@ -9,6 +10,7 @@ import com.cs203.healthwatch.profile.Audience;
 import com.cs203.healthwatch.profile.HealthCondition;
 import com.cs203.healthwatch.profile.Region;
 import com.cs203.healthwatch.repository.UserRepository;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -17,14 +19,16 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** CG-6: view and edit the caller's own profile. Every method takes the id from the token. */
+/** CG-6 (view/edit own profile) and CG-7 (anonymise own account). Every method takes the id from the token. */
 @Service
 public class ProfileService {
 
     private final UserRepository userRepository;
+    private final Clock clock;
 
-    public ProfileService(UserRepository userRepository) {
+    public ProfileService(UserRepository userRepository, Clock clock) {
         this.userRepository = userRepository;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -62,8 +66,29 @@ public class ProfileService {
         return ProfileResponse.from(userRepository.save(user));
     }
 
+    /**
+     * Anonymises the account instead of deleting the row: audit_log is append-only and references users as actors,
+     * so the id must survive. Personal data is wiped and the old username is replaced by a random one.
+     */
+    @Transactional
+    public void deleteAccount(UUID userId) {
+        User user = activeUser(userId);
+        if ("admin".equalsIgnoreCase(user.getRole())) {
+            throw new ForbiddenException("Admin accounts cannot be deleted through this endpoint");
+        }
+        user.setUsername("deleted-" + UUID.randomUUID());
+        user.setPasswordHash(null);
+        user.setRegion(null);
+        user.setAudience(null);
+        user.getHealthConditions().clear();
+        // no consent columns exist yet; null them here when they are added
+        user.setDeletedAt(clock.instant());
+        userRepository.save(user);
+    }
+
     private User activeUser(UUID userId) {
         return userRepository.findById(userId)
+                .filter(u -> !u.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
 }
