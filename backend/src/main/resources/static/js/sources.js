@@ -17,6 +17,7 @@ const MAX_BACKFILL_DAYS = 31;
 /** An enabled source with no new valid reading for this long is flagged (the feed is pulled hourly). */
 const QUIET_AFTER_HOURS = 3;
 let showLastData = false;
+let allowedHosts = null;     // from GET /data-sources/allowed-hosts, or null if the backend doesn't offer it
 
 /** Sources that have a backfill endpoint in the backend. Only PM2.5 has one so far. */
 const BACKFILL_ENDPOINTS = {
@@ -71,6 +72,7 @@ async function loadAllowedHosts() {
   let body;
   try {
     const hosts = await api("/data-sources/allowed-hosts");
+    allowedHosts = hosts;
     body = "<strong>Allowed hosts</strong>A feed URL must use https on one of these:" +
       "<ul>" + hosts.map((h) => "<li><code>" + esc(h) + "</code></li>").join("") + "</ul>";
   } catch (e) {
@@ -231,6 +233,12 @@ function startEdit(id) {
     withButton(save, async () => {
       try {
         const url = input.value.trim();
+        const badUrl = urlProblem(url);
+        if (badUrl) {
+          showFormError(error, badUrl);
+          input.classList.add("invalid");
+          return;
+        }
         await api("/data-sources/" + id, { method: "PUT", body: { url: url === "" ? null : url } });
         await loadSources();
         showMessage('URL updated for "' + source.name + '".', "success");
@@ -261,21 +269,12 @@ async function registerSource(event) {
     return;
   }
 
-  // Name and type can't be changed later and sources can't be deleted, so check before saving.
-  const sure = await confirmDialog({
-    title: "Register this source?",
-    body:
-      '<dl class="facts confirm-facts">' +
-        "<dt>Name</dt><dd>" + esc(name) + "</dd>" +
-        "<dt>Type</dt><dd>" + esc(type) + "</dd>" +
-        "<dt>Feed URL</dt><dd>" + (url ? esc(url) : "Default from config") + "</dd>" +
-      "</dl>" +
-      '<div class="note note-warn">' + icon("warning", 17) +
-        "<div>The <strong>name and type can't be changed</strong> after registering, and sources can't be deleted " +
-        "(only disabled). The URL can be edited later.</div></div>",
-    confirmText: "Register source",
-  });
-  if (!sure) return;
+  const badUrl = urlProblem(url);
+  if (badUrl) {
+    document.getElementById("add-url").classList.add("invalid");
+    showFormError(errorBox, badUrl);
+    return;
+  }
 
   await withButton(form.querySelector("button[type=submit]"), async () => {
     try {
@@ -287,6 +286,23 @@ async function registerSource(event) {
       form.hidden = true;
       await loadSources();
       showMessage('Registered "' + created.name + '". It starts disabled.', "success");
+
+        // Name and type can't be changed later and sources can't be deleted, so check before saving.
+      const sure = await confirmDialog({
+          title: "Register this source?",
+          body:
+          '<dl class="facts confirm-facts">' +
+              "<dt>Name</dt><dd>" + esc(name) + "</dd>" +
+              "<dt>Type</dt><dd>" + esc(type) + "</dd>" +
+              "<dt>Feed URL</dt><dd>" + (url ? esc(url) : "Default from config") + "</dd>" +
+          "</dl>" +
+            '<div class="note note-warn">' + icon("warning", 17) +
+            "<div>The <strong>name and type can't be changed</strong> after registering, and sources can't be deleted " +
+              "(only disabled). The URL can be edited later.</div></div>",
+          confirmText: "Register source",
+      });
+      if (!sure) return;
+      
     } catch (error) {
       // 409 = name taken, 400 = URL not allowed or name/type mismatch. Show it inside the form, next to the fields.
       if (error.status === 409) document.getElementById("add-name").classList.add("invalid");
@@ -294,6 +310,31 @@ async function registerSource(event) {
       showFormError(errorBox, error.message);
     }
   });
+}
+
+/**
+ * Quick check of a feed URL's shape before anything is sent, so obvious typos are caught straight away.
+ * The backend still does the real check (it owns the allowlist); this only saves a round trip.
+ * Returns an error message, or null if the URL looks fine (or is empty, which means "use the default").
+ */
+function urlProblem(url) {
+  if (!url) return null;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    return "That isn't a full web address. It should look like https://api-open.data.gov.sg/...";
+  }
+  if (parsed.protocol !== "https:") return "The feed URL must start with https://";
+  if (parsed.username || parsed.password) return "The feed URL must not contain a username or password.";
+  if (parsed.port) return "The feed URL must not include a port number.";
+  if (!parsed.hostname.includes(".")) {
+    return "\"" + parsed.hostname + "\" isn't a full host name. It should look like https://api-open.data.gov.sg/...";
+  }
+  if (allowedHosts && !allowedHosts.includes(parsed.hostname)) {
+    return "The host " + parsed.hostname + " isn't allowed. Allowed: " + allowedHosts.join(", ");
+  }
+  return null;
 }
 
 function showFormError(box, text) {

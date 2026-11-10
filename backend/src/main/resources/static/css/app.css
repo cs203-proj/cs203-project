@@ -298,7 +298,15 @@ body.sidebar-collapsed .user-card { flex-direction: column; }
 
 /* ================= Tables ================= */
 
-.table-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+ /* overflow stays visible so pop-overs (the "?" help) can extend past a short table; corners are rounded on the cells instead */
+.table-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.table-card > :first-child { border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); }
+.table-card thead tr:first-child th:first-child { border-top-left-radius: var(--radius); }
+.table-card thead tr:first-child th:last-child { border-top-right-radius: var(--radius); }
+.table-card .table-tools + table thead th { border-radius: 0; }
+.table-card tbody tr:last-child td:first-child { border-bottom-left-radius: var(--radius); }
+.table-card tbody tr:last-child td:last-child { border-bottom-right-radius: var(--radius); }
+
 .table-tools {
   min-height: 58px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between;
   gap: 12px; border-bottom: 1px solid var(--line);
