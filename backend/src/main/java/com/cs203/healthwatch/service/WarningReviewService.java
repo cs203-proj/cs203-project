@@ -86,13 +86,23 @@ public class WarningReviewService {
     }
 
     /**
-     * Lowers the severity. The target must be strictly less severe than the current value, so "downgrade" can never
-     * quietly escalate a warning. The warning stays PENDING_REVIEW.
+     * Lowers the severity and restates the wording to match. The target must be strictly less severe than the
+     * current value, so "downgrade" can never quietly escalate a warning. The warning stays PENDING_REVIEW.
      *
-     * @param reason why the severity is being lowered; recorded in the audit trail
+     * <p>The new wording is not optional. The drafted text names the severity and carries the advice for it
+     * ("(high severity)… keep windows closed while levels stay high"), and the original draft can never be
+     * rewritten, so changing only the severity field would leave end users reading the advice for a severity the
+     * warning no longer has. Severity and wording therefore move together in one transaction.
+     *
+     * <p>Any AI-written line (CG-154) is cleared for the same reason: it was generated for the old severity, and a
+     * stale sentence is worse than none. A fresh one can be generated afterwards.
+     *
+     * @param newText replacement wording for the new severity; stored as the admin's edit
+     * @param reason  why the severity is being lowered; recorded in the audit trail
      */
     @Transactional
-    public WarningResponse downgrade(UUID warningId, String requestedSeverity, String reason, UUID actorId) {
+    public WarningResponse downgrade(UUID warningId, String requestedSeverity, String newText, String reason,
+                                     UUID actorId) {
         WarningSeverity target = WarningSeverity.parse(requestedSeverity);
         Warning warning = pendingWarning(warningId);
         WarningSeverity current = warning.getSeverity();
@@ -104,6 +114,8 @@ public class WarningReviewService {
 
         Map<String, Object> before = snapshot(warning);
         warning.setSeverity(target);
+        warning.setEditedText(newText);
+        warning.setAiLine(null);
         Warning saved = warningRepository.saveAndFlush(warning);
 
         auditService.recordByUser(warningId, actorId, DOWNGRADED, before, withReason(snapshot(saved), reason));
@@ -153,6 +165,7 @@ public class WarningReviewService {
         state.put("severity", warning.getSeverity());
         state.put("warningText", warning.getWarningText());
         state.put("editedText", warning.getEditedText());
+        state.put("aiLine", warning.getAiLine());
         state.put("approvedAt", warning.getApprovedAt());
         return state;
     }

@@ -111,12 +111,15 @@ class WarningReviewServiceTest {
 
     // --- downgrade ----------------------------------------------------------------------------------------------
 
+    private static final String MEDIUM_WORDING =
+            "PM2.5 in the central region is elevated (medium severity). Cut down on prolonged outdoor activity.";
+
     @Test
     void downgrade_lowersSeverityAndRecordsTheReason() {
         Warning warning = pending(WarningSeverity.HIGH);
         ArgumentCaptor<Object> after = ArgumentCaptor.forClass(Object.class);
 
-        service.downgrade(warningId, "MEDIUM", "Readings fell back towards the baseline.", actorId);
+        service.downgrade(warningId, "MEDIUM", MEDIUM_WORDING, "Readings fell back towards the baseline.", actorId);
 
         assertThat(warning.getSeverity()).isEqualTo(WarningSeverity.MEDIUM);
         assertThat(warning.getStatus()).isEqualTo(WarningStatus.PENDING_REVIEW);
@@ -126,11 +129,37 @@ class WarningReviewServiceTest {
                 .containsEntry("severity", WarningSeverity.MEDIUM);
     }
 
+    /**
+     * The point of requiring new wording: the draft names the old severity and gives its advice, and the draft
+     * itself can never be rewritten, so without this an approved warning would tell the public the wrong thing.
+     */
+    @Test
+    void downgrade_replacesTheWordingSoItMatchesTheNewSeverity() {
+        Warning warning = pending(WarningSeverity.HIGH);
+        String originalDraft = warning.getWarningText();
+
+        service.downgrade(warningId, "MEDIUM", MEDIUM_WORDING, "Readings fell back.", actorId);
+
+        assertThat(warning.getWarningText()).isEqualTo(originalDraft);
+        assertThat(warning.getEditedText()).isEqualTo(MEDIUM_WORDING);
+        assertThat(warning.displayText()).isEqualTo(MEDIUM_WORDING);
+    }
+
+    @Test
+    void downgrade_clearsTheAiLineWrittenForTheOldSeverity() {
+        Warning warning = pending(WarningSeverity.HIGH);
+        warning.setAiLine("Because you have asthma, today's high levels are especially risky for you.");
+
+        service.downgrade(warningId, "MEDIUM", MEDIUM_WORDING, "Readings fell back.", actorId);
+
+        assertThat(warning.getAiLine()).isNull();
+    }
+
     @Test
     void downgrade_acceptsLowercaseSeverity() {
         Warning warning = pending(WarningSeverity.CRITICAL);
 
-        service.downgrade(warningId, "low", "Episode has passed.", actorId);
+        service.downgrade(warningId, "low", MEDIUM_WORDING, "Episode has passed.", actorId);
 
         assertThat(warning.getSeverity()).isEqualTo(WarningSeverity.LOW);
     }
@@ -139,7 +168,7 @@ class WarningReviewServiceTest {
     void downgrade_toTheSameSeverityIsRejected() {
         pending(WarningSeverity.HIGH);
 
-        assertThatThrownBy(() -> service.downgrade(warningId, "HIGH", "No change.", actorId))
+        assertThatThrownBy(() -> service.downgrade(warningId, "HIGH", MEDIUM_WORDING, "No change.", actorId))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("less severe");
 
@@ -150,17 +179,18 @@ class WarningReviewServiceTest {
     void downgrade_toAHigherSeverityIsRejected() {
         Warning warning = pending(WarningSeverity.MEDIUM);
 
-        assertThatThrownBy(() -> service.downgrade(warningId, "CRITICAL", "Escalating.", actorId))
+        assertThatThrownBy(() -> service.downgrade(warningId, "CRITICAL", MEDIUM_WORDING, "Escalating.", actorId))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("Cannot downgrade from MEDIUM to CRITICAL");
 
         assertThat(warning.getSeverity()).isEqualTo(WarningSeverity.MEDIUM);
+        assertThat(warning.getEditedText()).isNull();
         verifyNoInteractions(auditService);
     }
 
     @Test
     void downgrade_withAnUnknownSeverityIsRejected() {
-        assertThatThrownBy(() -> service.downgrade(warningId, "SEVERE", "Typo.", actorId))
+        assertThatThrownBy(() -> service.downgrade(warningId, "SEVERE", MEDIUM_WORDING, "Typo.", actorId))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("Unknown severity 'SEVERE'");
 

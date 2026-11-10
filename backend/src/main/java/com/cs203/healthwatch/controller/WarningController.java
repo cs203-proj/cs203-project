@@ -185,14 +185,18 @@ public class WarningController {
     @PostMapping("/{id}/downgrade")
     @Operation(
             summary = "Lower a warning's severity",
-            description = "Moves the warning to a less serious severity. The new severity must be strictly lower "
-                    + "than the current one, so a downgrade can never quietly escalate a warning. A reason is "
+            description = "Moves the warning to a less serious severity and restates the wording to match. The new "
+                    + "severity must be strictly lower than the current one, so a downgrade can never quietly "
+                    + "escalate a warning. Replacement wording is required: the drafted text names the severity and "
+                    + "carries the advice for it, and the original draft can never be rewritten, so changing the "
+                    + "severity alone would leave end users reading the advice for a severity the warning no longer "
+                    + "has. Any AI-written line is cleared, since it was generated for the old severity. A reason is "
                     + "required and is kept in the audit trail. The warning stays PENDING_REVIEW.")
     @ApiResponse(responseCode = "200", description = "Downgraded; the updated warning is returned",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(implementation = WarningResponse.class)))
-    @ApiResponse(responseCode = "400", description = "Missing severity or reason, an unknown severity, a severity "
-            + "that is not lower than the current one, or the warning is not PENDING_REVIEW",
+    @ApiResponse(responseCode = "400", description = "Missing severity, wording or reason, an unknown severity, a "
+            + "severity that is not lower than the current one, or the warning is not PENDING_REVIEW",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(implementation = ApiErrorResponse.class),
                     examples = @ExampleObject(value = """
@@ -213,7 +217,8 @@ public class WarningController {
             @Parameter(description = "Warning id") @PathVariable UUID id,
             @Valid @RequestBody DowngradeWarningRequest request,
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser actor) {
-        return warningReviewService.downgrade(id, request.severity(), request.reason(), actor.id());
+        return warningReviewService.downgrade(
+                id, request.severity(), request.warningText(), request.reason(), actor.id());
     }
 
     @PostMapping("/{id}/suppress")

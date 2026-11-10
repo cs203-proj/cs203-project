@@ -189,26 +189,40 @@ class WarningControllerTest {
     }
 
     @Test
-    void downgrade_passesSeverityAndReason() throws Exception {
+    void downgrade_passesSeverityWordingAndReason() throws Exception {
         UUID id = UUID.randomUUID();
-        when(warningReviewService.downgrade(any(), any(), any(), any()))
+        when(warningReviewService.downgrade(any(), any(), any(), any(), any()))
                 .thenReturn(warning(WarningSeverity.MEDIUM));
 
         mockMvc.perform(post("/warnings/{id}/downgrade", id)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"severity\":\"MEDIUM\",\"reason\":\"Readings fell back to baseline.\"}")
+                        .content("{\"severity\":\"MEDIUM\",\"warningText\":\"Levels are elevated (medium severity).\","
+                                + "\"reason\":\"Readings fell back to baseline.\"}")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk());
 
-        verify(warningReviewService)
-                .downgrade(eq(id), eq("MEDIUM"), eq("Readings fell back to baseline."), any(UUID.class));
+        verify(warningReviewService).downgrade(eq(id), eq("MEDIUM"),
+                eq("Levels are elevated (medium severity)."), eq("Readings fell back to baseline."),
+                any(UUID.class));
     }
 
     @Test
     void downgrade_withoutReasonIs400() throws Exception {
         mockMvc.perform(post("/warnings/{id}/downgrade", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"severity\":\"MEDIUM\"}")
+                        .content("{\"severity\":\"MEDIUM\",\"warningText\":\"Levels are elevated.\"}")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(warningReviewService);
+    }
+
+    /** A downgrade without new wording would leave the old severity's advice on the warning. */
+    @Test
+    void downgrade_withoutNewWordingIs400() throws Exception {
+        mockMvc.perform(post("/warnings/{id}/downgrade", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"severity\":\"MEDIUM\",\"reason\":\"Readings fell back to baseline.\"}")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isBadRequest());
 
