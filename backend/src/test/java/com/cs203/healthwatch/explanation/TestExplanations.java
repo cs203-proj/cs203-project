@@ -14,9 +14,13 @@ final class TestExplanations {
     }
 
     static ExplanationProperties props(boolean enabled, String apiKey) {
+        return props(enabled, apiKey, new ExplanationProperties.Retry(Duration.ofMinutes(5), 5, 3));
+    }
+
+    static ExplanationProperties props(boolean enabled, String apiKey, ExplanationProperties.Retry retry) {
         return new ExplanationProperties(enabled, apiKey, "groq-test-model",
                 "https://api.groq.com/openai/v1", Duration.ofSeconds(5), Duration.ofHours(6),
-                Duration.ofMinutes(60), Duration.ofHours(2), 12);
+                Duration.ofMinutes(60), Duration.ofHours(2), 12, retry);
     }
 
     /** One reading per hour, the last one at {@code last}, oldest first. */

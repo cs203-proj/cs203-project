@@ -15,6 +15,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param expectedInterval    how often the feed should produce a reading (hourly for PM2.5)
  * @param staleAfter          latest reading older than this (at analysis time) is called stale
  * @param maxEvidenceReadings most recent readings sent to the AI
+ * @param retry               how FAILED explanations are retried (CG-152)
  */
 @ConfigurationProperties(prefix = "app.explanation")
 public record ExplanationProperties(
@@ -26,8 +27,16 @@ public record ExplanationProperties(
         Duration lookback,
         Duration expectedInterval,
         Duration staleAfter,
-        int maxEvidenceReadings
+        int maxEvidenceReadings,
+        Retry retry
 ) {
+    /**
+     * @param interval    pause between retry runs (also the first delay after startup)
+     * @param batchSize   most explanations retried per run, so a backlog cannot burn the free-plan quota at once
+     * @param maxAttempts total tries per event (the first try included); after this a FAILED row is left alone
+     */
+    public record Retry(Duration interval, int batchSize, int maxAttempts) {}
+
     public boolean hasApiKey() {
         return apiKey != null && !apiKey.isBlank();
     }

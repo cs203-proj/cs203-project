@@ -3,6 +3,7 @@ package com.cs203.healthwatch.explanation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.StreamSupport;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -70,11 +72,24 @@ public class GroqExplanationClient implements ExplanationClient {
                     .body(requestBody(props.model(), context))
                     .retrieve()
                     .body(String.class);
+        } catch (HttpClientErrorException.TooManyRequests e) {
+            // 429: stored with the RATE_LIMITED: prefix; Retry-After (seconds) tells the retry job how long to wait
+            throw new RateLimitedException("Groq call failed: " + e.getMessage(), retryAfter(e), e);
         } catch (RestClientException e) {
             // Message only: the key is in a header, so it is never part of the message.
             throw new ExplanationException("Groq call failed: " + e.getMessage(), e);
         }
         return parse(body);
+    }
+
+    /** Retry-After as whole seconds, or null if absent or not a number (an HTTP-date is not worth parsing). */
+    private static Duration retryAfter(HttpClientErrorException e) {
+        String header = e.getResponseHeaders() == null ? null : e.getResponseHeaders().getFirst("Retry-After");
+        try {
+            return header == null ? null : Duration.ofSeconds(Long.parseLong(header.trim()));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     static Map<String, Object> requestBody(String model, ExplanationContext context) {
