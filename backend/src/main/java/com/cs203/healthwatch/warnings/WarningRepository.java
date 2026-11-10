@@ -1,11 +1,14 @@
 package com.cs203.healthwatch.warnings;
 
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 public interface WarningRepository extends JpaRepository<Warning, UUID> {
@@ -26,6 +29,14 @@ public interface WarningRepository extends JpaRepository<Warning, UUID> {
     @Query(value = "select w from Warning w where w.status = :status" + QUEUE_ORDER,
             countQuery = "select count(w) from Warning w where w.status = :status")
     Page<Warning> findQueue(WarningStatus status, Pageable page);
+
+    /**
+     * Loads the warning and locks its row until the transaction ends, so two admins reviewing the same warning at
+     * once queue up instead of overwriting each other (CG-28). Mirrors EventRepository.findByIdForUpdate.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select w from Warning w where w.id = :id")
+    Optional<Warning> findByIdForUpdate(UUID id);
 
     boolean existsByEventIdAndAudience(UUID eventId, String audience);
 
