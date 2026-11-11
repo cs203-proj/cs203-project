@@ -49,6 +49,14 @@ public class User extends BaseEntity {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    /** CG-8. Version of the consent notice accepted at sign-up. Null for accounts created before consent existed. */
+    @Column(name = "consent_version")
+    private String consentVersion;
+
+    /** CG-8. When that version was accepted. */
+    @Column(name = "consented_at")
+    private Instant consentedAt;
+
     public User(String username, String passwordHash, String role) {
         this.username = username;
         this.passwordHash = passwordHash;
