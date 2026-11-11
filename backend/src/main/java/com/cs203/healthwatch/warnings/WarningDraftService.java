@@ -2,18 +2,26 @@ package com.cs203.healthwatch.warnings;
 
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventStatus;
+import com.cs203.healthwatch.profile.Audience;
 import com.cs203.healthwatch.service.AuditService;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Drafts a warning when an event is confirmed (CG-21). Runs inside the caller's transaction, so a confirmed event, its
- * draft and the draft's audit entry (CG-36) are kept or rolled back together. Drafts start as PENDING_REVIEW; nothing is sent to anyone.
+ * Drafts warnings when an event is confirmed: one per audience (general public CG-21, vulnerable groups and healthcare
+ * workers CG-154). Runs inside the caller's transaction, so a confirmed event, its drafts and their audit entries
+ * (CG-36) are kept or rolled back together. Drafts start as PENDING_REVIEW; nothing is sent to anyone.
+ *
+ * <p>The optional AI line is not written here. A {@link WarningsDrafted} event is published instead, and
+ * {@link AiLineService} handles it only after this transaction commits, so a slow or failing AI call can never hold
+ * up or roll back the confirm.
  */
 @Slf4j
 @Service
@@ -26,19 +34,35 @@ public class WarningDraftService {
     private final WarningRepository warningRepository;
     private final WarningDrafter drafter;
     private final AuditService auditService;
+    private final ApplicationEventPublisher events;
 
-    /** @return the new draft, or empty if the event is not confirmed or already has a general-public draft */
+    /**
+     * @return the new drafts, general public first. Empty if the event is not confirmed. An audience that already has
+     *         a draft for this event is skipped, so calling this twice never duplicates a draft.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
-    public Optional<Warning> draftFor(DetectedEvent event) {
+    public List<Warning> draftFor(DetectedEvent event) {
         if (event.getStatus() != EventStatus.CONFIRMED) {
-            return Optional.empty();
-        }
-        if (warningRepository.existsByEventIdAndAudience(event.getId(), WarningDrafter.GENERAL_PUBLIC)) {
-            log.info("Event {} already has a general-public warning draft — not drafting another", event.getId());
-            return Optional.empty();
+            return List.of();
         }
 
-        WarningDrafter.Draft draft = drafter.draft(event, event.getConfidenceLevel());
+        List<Warning> drafted = new ArrayList<>();
+        for (Audience audience : Audience.values()) {
+            if (warningRepository.existsByEventIdAndAudience(event.getId(), audience.code())) {
+                log.info("Event {} already has a {} warning draft - not drafting another", event.getId(), audience);
+                continue;
+            }
+            drafted.add(draft(event, audience));
+        }
+
+        if (!drafted.isEmpty()) {
+            events.publishEvent(new WarningsDrafted(drafted.stream().map(Warning::getId).toList()));
+        }
+        return drafted;
+    }
+
+    private Warning draft(DetectedEvent event, Audience audience) {
+        WarningDrafter.Draft draft = drafter.draft(event, event.getConfidenceLevel(), audience);
 
         Warning warning = new Warning();
         warning.setEventId(event.getId());
@@ -54,7 +78,7 @@ public class WarningDraftService {
                 "severity", saved.getSeverity(),
                 "status", saved.getStatus(),
                 "warningText", saved.getWarningText()));
-        log.info("Drafted {} warning {} for event {}", draft.severity(), saved.getId(), event.getId());
-        return Optional.of(saved);
+        log.info("Drafted {} {} warning {} for event {}", draft.severity(), audience, saved.getId(), event.getId());
+        return saved;
     }
 }

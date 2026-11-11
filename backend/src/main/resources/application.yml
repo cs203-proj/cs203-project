@@ -30,6 +30,9 @@ app:
   warnings:
     feed:
       active-window: ${WARNING_ACTIVE_WINDOW:24h} # how long after approval a warning stays on GET /me/warnings (CG-22)
+    ai-line: # CG-154: AI "why this matters" line on each audience's draft; uses the app.explanation Groq key and model
+      enabled: ${AI_LINE_ENABLED:true}
+      max-length: 400 # longer replies are dropped
   jwt:
     secret: ${JWT_SECRET:change-this-dev-secret-change-this-dev-secret}
     access-token-ttl-minutes: ${JWT_ACCESS_TTL_MIN:30}

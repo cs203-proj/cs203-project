@@ -6,6 +6,7 @@ import com.cs203.healthwatch.confidence.ConfidenceLevel;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventStatus;
 import com.cs203.healthwatch.events.TestEvents;
+import com.cs203.healthwatch.profile.Audience;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -65,5 +66,65 @@ class WarningDrafterTest {
         for (WarningSeverity severity : WarningSeverity.values()) {
             assertThat(WarningDrafter.recommendedAction(severity)).isNotBlank();
         }
+    }
+
+    // CG-154: per-audience drafts
+
+    @Test
+    void twoArgumentDraftIsTheGeneralPublicDraft() {
+        assertThat(drafter.draft(pm25Event(9.4), ConfidenceLevel.HIGH))
+                .isEqualTo(drafter.draft(pm25Event(9.4), ConfidenceLevel.HIGH, Audience.GENERAL_PUBLIC));
+    }
+
+    @Test
+    void vulnerableDraftNamesItsAudienceAndUsesItsOwnAction() {
+        WarningDrafter.Draft draft = drafter.draft(pm25Event(9.4), ConfidenceLevel.HIGH, Audience.VULNERABLE);
+
+        assertThat(draft.audience()).isEqualTo("VULNERABLE");
+        assertThat(draft.severity()).isEqualTo(WarningSeverity.HIGH);
+        assertThat(draft.text())
+                .startsWith("PM2.5 (fine particle pollution) alert for the central region (high severity) - advice "
+                        + "for vulnerable groups.")
+                .contains("Confidence: high.")
+                .contains("What you should do: "
+                        + WarningDrafter.recommendedAction(Audience.VULNERABLE, WarningSeverity.HIGH));
+    }
+
+    @Test
+    void healthcareWorkerDraftNamesItsAudienceAndUsesItsOwnAction() {
+        WarningDrafter.Draft draft = drafter.draft(pm25Event(13), null, Audience.HEALTHCARE_WORKER);
+
+        assertThat(draft.audience()).isEqualTo("HEALTHCARE_WORKER");
+        assertThat(draft.severity()).isEqualTo(WarningSeverity.CRITICAL);
+        assertThat(draft.text())
+                .contains("(critical severity) - advice for healthcare workers.")
+                .contains("Confidence: not yet assessed.")
+                .contains("What you should do: "
+                        + WarningDrafter.recommendedAction(Audience.HEALTHCARE_WORKER, WarningSeverity.CRITICAL));
+    }
+
+    @Test
+    void severityDoesNotDependOnAudience() {
+        for (Audience audience : Audience.values()) {
+            assertThat(drafter.draft(pm25Event(6.0), null, audience).severity()).isEqualTo(WarningSeverity.MEDIUM);
+        }
+    }
+
+    @Test
+    void everyAudienceAndSeverityHasItsOwnAction() {
+        for (WarningSeverity severity : WarningSeverity.values()) {
+            assertThat(WarningDrafter.recommendedAction(Audience.GENERAL_PUBLIC, severity))
+                    .isEqualTo(WarningDrafter.recommendedAction(severity));
+            assertThat(Audience.values())
+                    .extracting(a -> WarningDrafter.recommendedAction(a, severity))
+                    .allSatisfy(action -> assertThat(action).isNotBlank())
+                    .doesNotHaveDuplicates();
+        }
+    }
+
+    @Test
+    void sameEventAndAudienceAlwaysGiveTheSameDraft() {
+        assertThat(drafter.draft(pm25Event(6.0), null, Audience.VULNERABLE))
+                .isEqualTo(drafter.draft(pm25Event(6.0), null, Audience.VULNERABLE));
     }
 }
