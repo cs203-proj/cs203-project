@@ -6,6 +6,7 @@ import com.cs203.healthwatch.consent.ConsentTerms;
 import com.cs203.healthwatch.dto.RegisterRequest;
 import com.cs203.healthwatch.model.User;
 import com.cs203.healthwatch.repository.UserRepository;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -33,6 +34,9 @@ public class RegistrationService {
      */
     public static final String END_USER_ROLE = "viewer";
 
+    /** The most bcrypt can use; see register(). */
+    static final int MAX_PASSWORD_BYTES = 72;
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -45,7 +49,18 @@ public class RegistrationService {
     public User register(RegisterRequest request) {
         requireConsent(request);
 
+        // bcrypt only reads the first 72 BYTES, so a longer password would be silently cut short and two different
+        // long passwords could hash the same. @Size caps characters; this catches multi-byte characters (e.g.
+        // emoji) that fit in 72 characters but not in 72 bytes.
+        if (request.password().getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
+            throw new BadRequestException("Password is too long: it must be at most " + MAX_PASSWORD_BYTES + " bytes.");
+        }
+
         String username = request.username().trim();
+        // @Size looks at the text as sent, so "  a  " passes it; the stored name is the trimmed one, so check that.
+        if (username.length() < 3) {
+            throw new BadRequestException("username must be at least 3 characters, not counting spaces");
+        }
         if (userRepository.findByUsername(username).isPresent()) {
             throw new ConflictException("Username '" + username + "' is already taken");
         }

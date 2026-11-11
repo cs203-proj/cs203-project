@@ -19,10 +19,11 @@ public record RegisterRequest(
         @Size(min = 3, max = 50, message = "username must be between 3 and 50 characters")
         String username,
 
-        @Schema(description = "Password, at least 8 characters. Stored only as a bcrypt hash.",
+        @Schema(description = "Password, 8 to 72 characters. Stored only as a bcrypt hash. Capped at 72 because bcrypt ignores "
+                + "everything after the first 72 bytes.",
                 example = "correct-horse-battery", requiredMode = Schema.RequiredMode.REQUIRED)
         @NotBlank(message = "password is required")
-        @Size(min = 8, max = 100, message = "password must be at least 8 characters")
+        @Size(min = 8, max = 72, message = "password must be between 8 and 72 characters")
         String password,
 
         @Schema(description = "Must be true. The account is not created without it.", example = "true",
@@ -34,4 +35,11 @@ public record RegisterRequest(
         @NotBlank(message = "consentVersion is required")
         String consentVersion
 ) {
+
+    /** A record's default toString prints every field. Keep the password out of logs and error messages. */
+    @Override
+    public String toString() {
+        return "RegisterRequest[username=" + username + ", password=<hidden>, consent=" + consent
+                + ", consentVersion=" + consentVersion + "]";
+    }
 }

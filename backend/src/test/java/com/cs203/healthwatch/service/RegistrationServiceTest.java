@@ -159,4 +159,30 @@ class RegistrationServiceTest {
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("already taken");
     }
+
+    @Test
+    void passwordOver72Bytes_isRejectedEvenWhenUnder72Characters() {
+        // 30 emoji = 30 characters (60 UTF-16 units) but 120 UTF-8 bytes, more than bcrypt can use
+        String emoji = "\uD83D\uDE00".repeat(30);
+
+        assertThatThrownBy(() -> service.register(
+                new RegisterRequest("alex.tan", emoji, true, ConsentTerms.VERSION)))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(userRepository, never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
+    void usernameThatIsTooShortOnceTrimmed_isRejected() {
+        assertThatThrownBy(() -> service.register(
+                new RegisterRequest("  a  ", "correct-horse", true, ConsentTerms.VERSION)))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(userRepository, never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
+    void registerRequestToStringHidesThePassword() {
+        assertThat(valid().toString()).doesNotContain("correct-horse");
+    }
 }
