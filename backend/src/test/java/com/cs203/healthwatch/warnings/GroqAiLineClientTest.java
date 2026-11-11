@@ -39,7 +39,8 @@ class GroqAiLineClientTest {
 
     private static ExplanationProperties props(String apiKey) {
         return new ExplanationProperties(true, apiKey, "groq-test-model", "https://api.groq.com/openai/v1",
-                Duration.ofSeconds(5), Duration.ofHours(6), Duration.ofMinutes(60), Duration.ofHours(2), 12);
+                Duration.ofSeconds(5), Duration.ofHours(6), Duration.ofMinutes(60), Duration.ofHours(2), 12,
+                new ExplanationProperties.Retry(Duration.ofMinutes(5), 5, 3));
     }
 
     @BeforeEach

@@ -44,8 +44,8 @@ class MeWarningControllerTest {
     void login() {
         user = new User("alice", "hash", "viewer");
         user.setId(UUID.randomUUID());
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
-        token = jwtService.generateToken("alice", "viewer");
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        token = jwtService.generateToken(user.getId(), "alice", "viewer");
     }
 
     @Test

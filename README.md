@@ -7,7 +7,7 @@ Public health surveillance and early warning system — HealthWatch.
 Install these once per machine:
 
 - **Docker Desktop** — runs Postgres for local dev. https://www.docker.com/products/docker-desktop/
-- **JDK 21+** — required to build/run the backend. (Maven itself is *not* required — the project uses the Maven Wrapper, which downloads Maven automatically.)
+- **JDK 21 required (newer JDKs break Lombok)** — to build/run the backend. (Maven itself is *not* required — the project uses the Maven Wrapper, which downloads Maven automatically.)
 
 You do **not** need to install Postgres or Maven yourself.
 
@@ -159,7 +159,7 @@ Each draft can also get an AI-written "why this matters for this audience" line 
   approving. Recorded in the warning's audit trail as `AI_LINE_ADDED` by `system`.
 - One row is shared by everyone in the audience, so no user's profile or health conditions are ever sent to the AI.
 
-## Profile (CG-6)
+## Profile and account deletion (CG-6, CG-7)
 
 An end user has a profile that drives per-audience warnings (CG-154) and `GET /me/warnings` (CG-22).
 
@@ -167,8 +167,9 @@ An end user has a profile that drives per-audience warnings (CG-154) and `GET /m
 |----------|--------------|
 | `GET /me/profile` | The caller's `region`, `audience` and `healthConditions`. Empty until first set. |
 | `PUT /me/profile` | Replaces the profile. Unknown codes give `400`; the message names the field and value. |
+| `DELETE /me` | Anonymises the caller's account (see below). `204` on success; admin accounts get `403`. |
 
-All `/me` routes need a bearer token (any role). The user is always the one in the token; there is no user id in any path or body. No token or an invalid token gives `401`.
+All `/me` routes need a bearer token (any role). The user is always the one in the token; there is no user id in any path or body. No token or an invalid token gives `401`. Admins can view and edit a profile but cannot delete their account through this endpoint.
 
 ### Frozen codes (shared with CG-154 and CG-22)
 
@@ -176,6 +177,20 @@ All `/me` routes need a bearer token (any role). The user is always the one in t
 - `audience`: `GENERAL_PUBLIC`, `VULNERABLE`, `HEALTHCARE_WORKER` (uppercase, same as `warnings.audience`).
 - `healthConditions`: a list of codes from `HealthCondition.java`; never free text. Duplicates are ignored.
 - Case matters: `North` is rejected. Changing a code needs CG-6, CG-154 and CG-22 to agree.
+
+### Account deletion anonymises instead of hard-deleting
+
+`audit_log` is append-only (trigger in `V3`) and references `users` as the actor. Deleting the user row would either break that foreign key or force changes to audit history, so `DELETE /me` keeps the row and its id and removes the personal data:
+
+- `username` becomes `deleted-<random uuid>`, not derived from the old name, so the old name is free again.
+- `password_hash`, `region`, `audience` and all health conditions are cleared; `deleted_at` is set. All of this happens in one transaction.
+- No `audit_log` row is touched. Audit trails show the anonymised username for that actor.
+- The old credentials cannot log in, and tokens for the account stop working at once: `JwtAuthFilter` ignores deleted users, so any `/me` call, including `GET /me/warnings`, returns `401`.
+- Tokens identify the account by its id (`uid` claim), and `JwtAuthFilter` looks the account up by id, never by username. This matters because the old name is free again: a token issued to a deleted `alice` can never act as a new account that is also called `alice`. Tokens without a `uid` are rejected, so everyone logs in again once after this change is deployed.
+- Admin accounts cannot be deleted through this endpoint (`403`).
+- A database check (migration `V13`) makes it impossible to have `deleted_at` set while a password, region or audience remains.
+- `users` has no consent columns yet. Whoever adds them must also clear them in `ProfileService.deleteAccount`.
+- Any future query that lists users (for example by audience) should filter `deleted_at IS NULL`.
 
 ## My warnings (CG-22, CG-23)
 

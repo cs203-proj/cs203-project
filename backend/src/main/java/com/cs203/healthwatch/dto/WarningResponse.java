@@ -17,6 +17,9 @@ public record WarningResponse(
         @Schema(example = "HIGH") WarningSeverity severity,
         @Schema(example = "PENDING_REVIEW") WarningStatus status,
         @Schema(description = "The AI's original draft, never overwritten") String warningText,
+        @Schema(description = "The admin's edited wording (CG-28), or null if it has not been edited. The AI original "
+                + "stays in warningText, so a reviewer can always compare the two.")
+        String editedText,
         @Schema(description = "Optional AI-written \"why this matters for this audience\" line (CG-154), built from "
                 + "the event's AI explanation. Never contains advice. Null if there is none. Shown to end users "
                 + "labelled as AI-generated",
@@ -27,7 +30,7 @@ public record WarningResponse(
 ) {
     public static WarningResponse from(Warning warning) {
         return new WarningResponse(warning.getId(), warning.getEventId(), warning.getAudience(),
-                warning.getSeverity(), warning.getStatus(), warning.getWarningText(), warning.getAiLine(),
-                warning.getCreatedAt());
+                warning.getSeverity(), warning.getStatus(), warning.getWarningText(), warning.getEditedText(),
+                warning.getAiLine(), warning.getCreatedAt());
     }
 }

@@ -35,7 +35,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-/** CG-6 end to end: real security, JPA and database (H2 test profile). */
+/** CG-6 and CG-7 end to end: real security, JPA and database (H2 test profile). */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -70,9 +70,9 @@ class MeIntegrationTest {
         alice = userRepository.save(new User("alice", passwordEncoder.encode("alice-pw"), "user"));
         bob = userRepository.save(new User("bob", passwordEncoder.encode("bob-pw"), "user"));
         admin = userRepository.save(new User("root", passwordEncoder.encode("root-pw"), "admin"));
-        aliceToken = jwtService.generateToken("alice", "user");
-        bobToken = jwtService.generateToken("bob", "user");
-        adminToken = jwtService.generateToken("root", "admin");
+        aliceToken = jwtService.generateToken(alice.getId(), "alice", "user");
+        bobToken = jwtService.generateToken(bob.getId(), "bob", "user");
+        adminToken = jwtService.generateToken(admin.getId(), "root", "admin");
     }
 
     /** The test database is shared with other test classes, whose cleanup does `delete from users`. */
@@ -176,5 +176,110 @@ class MeIntegrationTest {
         mockMvc.perform(get("/me/profile")).andExpect(status().isUnauthorized());
         mockMvc.perform(put("/me/profile").contentType(MediaType.APPLICATION_JSON).content(PROFILE))
                 .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/me")).andExpect(status().isUnauthorized());
+    }
+
+    // ---- CG-7 ----
+
+    private List<Map<String, Object>> auditRows() {
+        return jdbc.queryForList("select * from audit_log order by id");
+    }
+
+    @Test
+    void delete_anonymisesTheAccountAndKeepsTheId() throws Exception {
+        putProfile(aliceToken, PROFILE).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isNoContent());
+
+        User after = userRepository.findById(alice.getId()).orElseThrow();
+        assertThat(after.getUsername()).startsWith("deleted-").doesNotContain("alice");
+        assertThat(after.getPasswordHash()).isNull();
+        assertThat(after.getRegion()).isNull();
+        assertThat(after.getAudience()).isNull();
+        assertThat(after.getDeletedAt()).isNotNull();
+        assertThat(jdbc.queryForObject("select count(*) from user_health_conditions where user_id = ?",
+                Integer.class, alice.getId())).isZero();
+    }
+
+    @Test
+    void afterDelete_oldCredentialsCannotLogIn() throws Exception {
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"alice-pw\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** The token carries the user id, and the filter finds the row by id, so it is the deleted check that blocks it. */
+    @Test
+    void afterDelete_oldTokenIsRejected() throws Exception {
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isNoContent());
+
+        getProfile(aliceToken).andExpect(status().isUnauthorized());
+        putProfile(aliceToken, PROFILE).andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void afterDelete_oldTokenCannotReachANewAccountWithTheSameName() throws Exception {
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isNoContent());
+        // the old name is free again, so a new account can take it
+        User newAlice = userRepository.save(new User("alice", passwordEncoder.encode("new-pw"), "user"));
+        String newAliceToken = jwtService.generateToken(newAlice.getId(), "alice", "user");
+        putProfile(newAliceToken, PROFILE).andExpect(status().isOk());
+
+        // the old token has the same name in it but belongs to the deleted account
+        getProfile(aliceToken).andExpect(status().isUnauthorized());
+        putProfile(aliceToken, "{\"region\":\"west\",\"audience\":\"GENERAL_PUBLIC\",\"healthConditions\":[]}")
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isUnauthorized());
+
+        // the new account is untouched and still works
+        getProfile(newAliceToken).andExpect(status().isOk()).andExpect(jsonPath("$.region").value("north"));
+        assertThat(userRepository.findById(newAlice.getId()).orElseThrow().isDeleted()).isFalse();
+    }
+
+    @Test
+    void afterDelete_auditEntriesAreIntactAndStillPointAtTheUser() throws Exception {
+        DetectedEvent event = eventRepository.save(TestEvents.event(5.0, EventStatus.NEW, "2026-09-24T03:15:00Z"));
+        auditLogRepository.save(new AuditLog(event.getId(), alice.getId(), EventStatus.NEW, EventStatus.UNDER_REVIEW,
+                Instant.parse("2026-09-24T04:00:00Z")));
+        List<Map<String, Object>> before = auditRows();
+
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isNoContent());
+
+        assertThat(auditRows()).isEqualTo(before);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from audit_log a join users u on u.id = a.actor_id where u.deleted_at is not null",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void admin_cannotDeleteThroughThisEndpoint() throws Exception {
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isForbidden());
+
+        User after = userRepository.findById(admin.getId()).orElseThrow();
+        assertThat(after.getUsername()).isEqualTo("root");
+        assertThat(after.getPasswordHash()).isNotNull();
+        assertThat(after.getDeletedAt()).isNull();
+        getProfile(adminToken).andExpect(status().isOk());
+    }
+
+    @Test
+    void deletingOneUserDoesNotAffectAnother() throws Exception {
+        putProfile(bobToken, PROFILE).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/me").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isNoContent());
+
+        getProfile(bobToken).andExpect(status().isOk()).andExpect(jsonPath("$.region").value("north"));
     }
 }

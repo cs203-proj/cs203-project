@@ -47,6 +47,27 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
             @Param("to") OffsetDateTime to);
 
     /**
+     * The newest valid readings observed at or before {@code to}, newest first (CG-152: rebuilds what detection saw
+     * when an event was raised). Live events use real readings only; replay events also accept synthetic ones, like
+     * the replay window query above.
+     */
+    @Query("""
+          select r from Reading r
+          where r.region = :region
+          and r.malformed = false
+          and r.value is not null
+          and (:includeSynthetic = true or r.synthetic = false)
+          and r.observedAt <= :to
+          and r.sourceId in (select d.id from DataSource d where d.type = :sourceType)
+          order by r.observedAt desc
+    """)
+    List<Reading> findValidUpTo(@Param("region") String region,
+            @Param("sourceType") String sourceType,
+            @Param("includeSynthetic") boolean includeSynthetic,
+            @Param("to") OffsetDateTime to,
+            Pageable pageable);
+
+    /**
      * Valid real readings from every region except {@code region}, in the window {@code (from, to]}, grouped by
      * region and newest first within each region. CG-136 hand-over for CG-16: lets source agreement check whether
      * a spike in one region also shows up in the others (a "source" is a (source_id, region) pair).

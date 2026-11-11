@@ -66,11 +66,11 @@ class EventControllerTest {
         admin.setId(ADMIN_ID);
         User viewer = new User("viewer", "hash", "viewer");
         viewer.setId(UUID.randomUUID());
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(admin));
-        when(userRepository.findByUsername("viewer")).thenReturn(Optional.of(viewer));
+        when(userRepository.findById(admin.getId())).thenReturn(Optional.of(admin));
+        when(userRepository.findById(viewer.getId())).thenReturn(Optional.of(viewer));
 
-        adminToken = jwtService.generateToken("admin", "admin");
-        viewerToken = jwtService.generateToken("viewer", "viewer");
+        adminToken = jwtService.generateToken(admin.getId(), "admin", "admin");
+        viewerToken = jwtService.generateToken(viewer.getId(), "viewer", "viewer");
     }
 
     private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {
