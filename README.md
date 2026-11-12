@@ -43,10 +43,9 @@ That's it — there's no separate install step. The steps below (start DB, run b
 
 ## Notes
 
-- Visiting `http://localhost:8080/` directly will prompt for a username/password — that's Spring Security's default login (`user` / a random password printed in the backend's console log at startup). This goes away once real auth is added; it's not the app's actual login system yet.
+- Web app: `http://localhost:8080/` (see [Web UI](#web-ui-cg-4)). To create an admin locally, start the backend with `ADMIN_SEED_USERNAME` and `ADMIN_SEED_PASSWORD` set.
 - API docs (once endpoints exist): `http://localhost:8080/swagger-ui.html`.
 - To stop Postgres: `docker compose down` (add `-v` to also wipe the database data).
-- `frontend/` is not scaffolded yet.
 
 ## Events and audit trail
 
@@ -218,10 +217,42 @@ Migration `V12` adds `warnings.approved_at`, `warnings.edited_text` and `warning
 (CG-28) must set `approved_at` when status becomes `APPROVED` and write the admin's wording to `edited_text`, never to
 `warning_text`. CG-154 writes `ai_line`.
 
+## Data sources (CG-58)
+
+Admins manage the feeds that ingestion pulls from. All routes need an admin token (`401` without a token, `403` for non-admins).
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /data-sources?name=` | All sources sorted by name. `name` is an exact filter; no match gives `200 []`. |
+| `GET /data-sources/{id}` | One source; unknown id gives `404`. |
+| `POST /data-sources` | Registers a source, **disabled**. `201`; duplicate name `409`; bad url `400`. |
+| `PUT /data-sources/{id}` | Changes the feed url only. `null` falls back to the configured default (`pm.url`). |
+| `PATCH /data-sources/{id}/enabled` | Body `{"enabled": true}` or `false`. |
+
+- Ingestion and backfill read the row on every pull, so changes apply from the next pull. A disabled source is skipped by ingestion, and backfill for it returns `409`. Its readings are kept.
+- There is no delete (`405`): readings reference their source, so a source is disabled instead.
+- Name and type cannot change: ingestion finds its row by name, and detection groups readings by type. Registering a name that the code ingests under a different type gives `400`.
+- `ingestionAvailable` is `true` when this build has ingestion code for the source. A source registered without it is stored but never pulled.
+- **Url rules (SSRF):** https only, default port, no user info, and the host must be in `ingestion.sources.allowed-hosts` (env `INGESTION_ALLOWED_HOSTS`, comma-separated, default `api-open.data.gov.sg`). Redirects are not followed. The url is never logged, since it may carry an API key.
+- **Known limitation:** the host is checked by name, not by the IP it resolves to, so DNS rebinding on an allowed host is not blocked. Only add hosts you trust.
+- "Last successful pull" per source was descoped.
+
+## Web UI (CG-4)
+
+Plain HTML, CSS and JavaScript in `backend/src/main/resources/static/`, served by Spring Boot at `/`. Same origin as the API, so no CORS and no separate deploy: it ships with the backend.
+
+- **Login** routes by role: admins go to *Review warnings*, users to *My warnings*. Admin pages redirect non-admins; the server still enforces roles.
+- **Admin:** review queue (approve, edit, downgrade, suppress, with history), events (explanation, confidence, start review, confirm), data sources (register, edit url, enable/disable, backfill).
+- **User:** sign up with consent, settings (region, audience, health conditions only for vulnerable, delete account), my warnings.
+- Admins cannot sign up; admin accounts come only from the seeder.
+- The token is kept in `localStorage`, so it is shared across tabs; it expires after 30 minutes (server-enforced). Logout clears it.
+- Third-party code: flatpickr (date picker) in `static/vendor/`, MIT licence included.
+- Editing pages without restarting (from `backend/`): `./mvnw spring-boot:run -Dspring-boot.run.arguments=--spring.web.resources.static-locations=file:src/main/resources/static/`, then refresh the browser.
+
 ## Project structure
 
 - `backend/` — Spring Boot 3.3 (Java 21) API: web, JPA, Postgres, Flyway, Spring Security, JWT (jjwt), OpenAPI/Swagger.
-- `frontend/` — not yet started.
+- `backend/src/main/resources/static/` — web UI (CG-4), served by the backend.
 - `docker-compose.yml` — local Postgres for dev.
 
 ## Deployment
