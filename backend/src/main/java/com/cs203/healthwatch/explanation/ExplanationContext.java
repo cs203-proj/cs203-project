@@ -1,6 +1,7 @@
 package com.cs203.healthwatch.explanation;
 
 import com.cs203.healthwatch.detection.ReadingSnapshot;
+import com.cs203.healthwatch.detection.ScopeResult;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -11,6 +12,8 @@ import java.util.UUID;
  *
  * @param deviation  the largest robust z-score among the breaching readings
  * @param readings   recent valid readings, oldest first
+ * @param scope      cross-region comparison, computed in code (CG-169); the AI only explains it
+ * @param knownRegions every region the system ingests, sorted (the denominator of "n of m regions reporting")
  */
 public record ExplanationContext(
         UUID eventId,
@@ -24,5 +27,7 @@ public record ExplanationContext(
         double zThreshold,
         int consecutiveReadings,
         List<ReadingSnapshot> readings,
-        DataQuality dataQuality
+        DataQuality dataQuality,
+        ScopeResult scope,
+        List<String> knownRegions
 ) {}

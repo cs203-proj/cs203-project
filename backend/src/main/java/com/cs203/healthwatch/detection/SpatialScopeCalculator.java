@@ -1,9 +1,11 @@
 package com.cs203.healthwatch.detection;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * Local spike or island-wide haze (CG-170). Pure: no Spring, no DB. Uses the detection pipeline's own test, a robust
@@ -39,11 +41,11 @@ public final class SpatialScopeCalculator {
     public static ScopeResult computeScope(String flaggedRegion, Map<String, ReadingSnapshot> readingsAtSameTime,
                                            Map<String, BaselineSnapshot> baselines, Set<String> knownRegions,
                                            double zThreshold) {
-        ScopeResult unknown = new ScopeResult(SpatialScope.UNKNOWN, List.of(), List.of());
         BaselineSnapshot flaggedBaseline = baselines.get(flaggedRegion);
         if (flaggedBaseline == null || !flaggedBaseline.hasUsableSpread()) {
-            return unknown;
+            return ScopeResult.unknown("the flagged region has no usable baseline");
         }
+        Map<String, Double> zScores = new TreeMap<>();
         List<String> comparedRegions = new ArrayList<>();
         boolean flaggedAbove = false;
         List<String> above = new ArrayList<>();
@@ -58,20 +60,25 @@ public final class SpatialScopeCalculator {
                 continue;
             }
             comparedRegions.add(e.getKey());
+            zScores.put(e.getKey(), z);
             if (z > zThreshold) {
                 above.add(e.getKey());
                 flaggedAbove |= e.getKey().equals(flaggedRegion);
             }
         }
         // ponytail: if the flagged region itself is not above, the data contradicts the event, so we say UNKNOWN
-        if (comparedRegions.size() < MIN_REGIONS || !flaggedAbove) {
-            return unknown;
+        if (comparedRegions.size() < MIN_REGIONS) {
+            return ScopeResult.unknown("only " + comparedRegions.size() + " of " + knownRegions.size()
+                    + " regions had a usable reading and baseline (at least " + MIN_REGIONS + " are needed)");
+        }
+        if (!flaggedAbove) {
+            return ScopeResult.unknown("the flagged region has no usable reading above the threshold at this time");
         }
         above.sort(null);
         comparedRegions.sort(null);
         boolean everyKnownRegionAbove = above.size() == knownRegions.size(); // above is a subset of known
         SpatialScope scope = above.size() == 1 ? SpatialScope.LOCAL
                 : everyKnownRegionAbove ? SpatialScope.ISLAND_WIDE : SpatialScope.MULTI_REGION;
-        return new ScopeResult(scope, List.copyOf(above), List.copyOf(comparedRegions));
+        return new ScopeResult(scope, List.copyOf(above), List.copyOf(comparedRegions), Collections.unmodifiableMap(zScores), null);
     }
 }
