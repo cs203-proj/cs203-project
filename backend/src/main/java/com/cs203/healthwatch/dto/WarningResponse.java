@@ -37,4 +37,10 @@ public record WarningResponse(
                 warning.getSeverity(), warning.getStatus(), warning.getWarningText(), warning.getEditedText(),
                 warning.getAiLine(), warning.getCreatedAt(), null);
     }
+
+    /** The same warning with its AI summary attached (the review queue fills it; other endpoints leave it null). */
+    public WarningResponse withAi(WarningAiSummary summary) {
+        return new WarningResponse(id, eventId, audience, severity, status, warningText, editedText, aiLine,
+                createdAt, summary);
+    }
 }

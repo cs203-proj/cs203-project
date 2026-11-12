@@ -1,10 +1,11 @@
 package com.cs203.healthwatch.service;
 
 import com.cs203.healthwatch.common.exception.BadRequestException;
+import com.cs203.healthwatch.dto.WarningAiSummary;
 import com.cs203.healthwatch.dto.WarningListResponse;
 import com.cs203.healthwatch.dto.WarningResponse;
 import com.cs203.healthwatch.repository.OffsetPageRequest;
-import com.cs203.healthwatch.warnings.Warning;
+import com.cs203.healthwatch.warnings.WarningQueueRow;
 import com.cs203.healthwatch.warnings.WarningRepository;
 import com.cs203.healthwatch.warnings.WarningStatus;
 import java.util.List;
@@ -41,11 +42,13 @@ public class WarningService {
         WarningStatus statusFilter = (status == null) ? null : WarningStatus.parse(status);
 
         OffsetPageRequest page = new OffsetPageRequest(offset, limit);
-        Page<Warning> result = (statusFilter == null)
-                ? warningRepository.findQueue(page)
-                : warningRepository.findQueue(statusFilter, page);
+        Page<WarningQueueRow> result = (statusFilter == null)
+                ? warningRepository.findQueueRows(page)
+                : warningRepository.findQueueRows(statusFilter, page);
 
-        List<WarningResponse> items = result.getContent().stream().map(WarningResponse::from).toList();
+        List<WarningResponse> items = result.getContent().stream()
+                .map(r -> WarningResponse.from(r.warning()).withAi(WarningAiSummary.of(r)))
+                .toList();
         return new WarningListResponse(items, result.getTotalElements(), limit, offset);
     }
 }
