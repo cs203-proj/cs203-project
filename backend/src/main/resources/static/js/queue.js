@@ -1,7 +1,7 @@
 /*
  * Review warnings.
  *   Warnings:     GET /warnings?status=...  (already sorted by severity, then age, by the backend)
- *   Per card:     region and confidence from GET /events, AI verdict from GET /events/{id}/explanation
+ *   Per card:     AI verdict and confidence from each item's "ai" summary (CG-163); region from GET /events
  *   Audit trail:  GET /warnings/{id}/audit  (shown in a pop-up)
  *   Review (CG-28): POST /warnings/{id}/approve | edit | downgrade | suppress  (PENDING_REVIEW only)
  */
@@ -101,7 +101,6 @@ async function loadQueue() {
     const query = "?limit=" + PAGE_SIZE + "&offset=" + offset + (currentStatus ? "&status=" + currentStatus : "");
     const [page, events] = await Promise.all([api("/warnings" + query), loadEventsById()]);
     eventsById = events;
-    const verdicts = await loadVerdicts(page.items.map((w) => w.eventId));
     renderPager(page);
 
     if (page.items.length === 0) {
@@ -110,7 +109,7 @@ async function loadQueue() {
     }
     warningsOnPage = {};
     page.items.forEach((w) => (warningsOnPage[w.id] = w));
-    container.innerHTML = page.items.map((w) => warningCard(w, events[w.eventId], verdicts[w.eventId])).join("");
+    container.innerHTML = page.items.map((w) => warningCard(w, events[w.eventId])).join("");
   } catch (error) {
     container.innerHTML = "";
     showMessage(error.message);
@@ -130,7 +129,7 @@ async function loadTabCounts() {
   });
 }
 
-/** GET /events (up to MAX_PAGE_SIZE) as { eventId: event }, for each card's region and confidence. */
+/** GET /events (up to MAX_PAGE_SIZE) as { eventId: event }, for each card's region. */
 async function loadEventsById() {
   const page = await api("/events?limit=" + MAX_PAGE_SIZE);
   const byId = {};
@@ -138,23 +137,20 @@ async function loadEventsById() {
   return byId;
 }
 
-/** AI explanation per event, as { eventId: explanation or null }. A missing explanation is not an error here. */
-async function loadVerdicts(eventIds) {
-  const unique = [...new Set(eventIds)];
-  const results = await Promise.all(unique.map((id) => api("/events/" + id + "/explanation").catch(() => null)));
-  const byId = {};
-  unique.forEach((id, i) => (byId[id] = results[i]));
-  return byId;
-}
-
-function warningCard(warning, event, explanation) {
-  const confidence = event && event.confidence
-    ? "<strong>" + esc(label(event.confidence.level)) + ' <span class="score-pill">' + formatNumber(event.confidence.score) +
+/**
+ * One card. "ai" (CG-163) is the event's AI verdict and confidence, sent with each queue item: status OK has an
+ * assessment and likely cause; UNAVAILABLE means the AI call failed or hasn't run (confidence may still be set).
+ */
+function warningCard(warning, event) {
+  const ai = warning.ai || {};
+  const scored = ai.confidenceScore !== null && ai.confidenceScore !== undefined;
+  const confidence = scored
+    ? "<strong>" + esc(label(ai.confidenceLevel)) + ' <span class="score-pill">' + formatNumber(ai.confidenceScore) +
       "</span></strong>"
     : '<strong class="muted">Not scored</strong>';
-  let verdict = '<span class="muted">No explanation yet</span>';
-  if (explanation && explanation.status === "OK") verdict = "<strong>" + esc(label(explanation.assessment)) + "</strong>";
-  if (explanation && explanation.status === "FAILED") verdict = '<span class="muted">AI call failed</span>';
+  const verdict = ai.status === "OK"
+    ? "<strong>" + esc(label(ai.assessment)) + "</strong>"
+    : '<span class="muted">AI summary unavailable</span>';
 
   return (
     '<article class="warning-card">' +
@@ -166,10 +162,13 @@ function warningCard(warning, event, explanation) {
       '<div class="warning-meta">' +
         '<div><span class="label-sm">Region</span><strong>' + esc(event ? label(event.region) : "Unknown") + "</strong></div>" +
         '<div><span class="label-sm">Confidence</span>' + confidence + "</div>" +
-        (event && event.confidence ? "<div>" + scoreBar(event.confidence.score) + "</div>" : "") +
+        (scored ? "<div>" + scoreBar(ai.confidenceScore) + "</div>" : "") +
         '<div><span class="label-sm">AI assessment</span>' + verdict + "</div>" +
         '<div><span class="label-sm">Audience</span><strong>' + esc(label(warning.audience)) + "</strong></div>" +
       "</div>" +
+      (ai.status === "OK" && ai.likelyCause
+        ? '<p class="likely-cause"><span class="label-sm">Likely cause (AI)</span>' + esc(ai.likelyCause) + "</p>"
+        : "") +
       warningTextBlock(warning) +
       '<div class="card-actions">' +
         reviewButtons(warning) +

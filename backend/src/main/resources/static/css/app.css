@@ -677,3 +677,7 @@ span.flatpickr-weekday { color: var(--peri); font-weight: 700; font-size: 11px; 
 .refresh-btn:disabled { cursor: progress; }
 .refresh-btn.spinning svg { animation: refresh-spin 0.8s linear infinite; }
 @keyframes refresh-spin { to { transform: rotate(360deg); } }
+
+/* Review queue: the AI's likely cause for the event (CG-163), above the warning text */
+.likely-cause { font-size: 13px; color: var(--navy); margin: -4px 0 12px; }
+.likely-cause .label-sm { display: block; margin-bottom: 2px; }
