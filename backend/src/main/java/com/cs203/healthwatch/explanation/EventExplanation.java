@@ -1,6 +1,7 @@
 package com.cs203.healthwatch.explanation;
 
 import com.cs203.healthwatch.common.BaseEntity;
+import com.cs203.healthwatch.detection.SpatialScope;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -44,6 +45,29 @@ public class EventExplanation extends BaseEntity {
 
     @JdbcTypeCode(SqlTypes.JSON)
     private List<String> assumptions;
+
+    /** Spike scope across regions (CG-171), set by code. Null on rows from before V16: read with {@link #scopeOrUnknown()}. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private SpatialScope scope;
+
+    /** Region codes above the detection threshold, flagged region included (CG-171). Null on pre-V16 rows. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "regions_above")
+    private List<String> regionsAbove;
+
+    /** Region codes that took part in the comparison, sorted (CG-171). Null on pre-V16 rows. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "regions_compared")
+    private List<String> regionsCompared;
+
+    /** The AI's plain-words account of the scope it was given (CG-172). Null on FAILED and pre-V16 rows. */
+    @Column(name = "scope_summary", length = LONG_TEXT)
+    private String scopeSummary;
+
+    public SpatialScope scopeOrUnknown() {
+        return scope == null ? SpatialScope.UNKNOWN : scope;
+    }
 
     @Column(name = "data_complete", nullable = false)
     private boolean dataComplete;

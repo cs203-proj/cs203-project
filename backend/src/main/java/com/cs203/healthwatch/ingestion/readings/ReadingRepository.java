@@ -88,4 +88,23 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
             @Param("to") OffsetDateTime to);
 
     Optional<Reading> findBySourceIdAndRegionAndObservedAt(UUID sourceId, String region, OffsetDateTime observedAt);
+
+    /**
+     * Valid readings from every region except {@code region} in the window {@code (from, to]} (CG-169: cross-region
+     * scope of an explained event). Like {@link #findValidUpTo}, replay events also accept synthetic readings.
+     */
+    @Query("""
+          select r from Reading r
+          where r.region <> :region
+          and r.malformed = false
+          and r.value is not null
+          and (:includeSynthetic = true or r.synthetic = false)
+          and r.observedAt > :from and r.observedAt <= :to
+          and r.sourceId in (select d.id from DataSource d where d.type = :sourceType)
+    """)
+    List<Reading> findOtherRegionsValidBetween(@Param("region") String region,
+            @Param("sourceType") String sourceType,
+            @Param("includeSynthetic") boolean includeSynthetic,
+            @Param("from") OffsetDateTime from,
+            @Param("to") OffsetDateTime to);
 }

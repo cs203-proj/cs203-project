@@ -33,7 +33,7 @@ class EventExplanationServiceTest {
     private static final BaselineSnapshot BASELINE = new BaselineSnapshot("central", "pm25", 18.0, 5.0);
     private static final AiExplanation ANSWER = new AiExplanation(Assessment.GENUINE_TREND,
             "Consistent with regional haze", "PM2.5 rose steadily.", List.of("45, 55, 70 vs median 18"),
-            List.of("Station reports correctly"));
+            List.of("Station reports correctly"), "Only central is above.");
 
     private ExplanationClient client;
     private EventExplanationRepository repo;

@@ -33,7 +33,9 @@ public class EventExplanationController {
             description = "Written automatically when the event is detected: the likely cause, whether it looks "
                     + "like noise or a genuine trend, the key evidence and the assumptions. dataQualityNote states "
                     + "whether the readings were stale or incomplete. If the AI call failed, status is FAILED and "
-                    + "error says why; the event itself is unaffected.")
+                    + "error says why; the event itself is unaffected. scope, regionsAbove and regionsCompared say whether "
+                    + "the spike is local or island-wide; they are computed by the system and the AI only explains "
+                    + "them (scopeSummary). Older explanations return scope UNKNOWN with empty lists.")
     @ApiResponse(responseCode = "200", description = "Explanation returned",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(implementation = EventExplanationResponse.class),
@@ -50,7 +52,11 @@ public class EventExplanationController {
                               "dataQualityNote": "Based on complete data: 6 of 6 expected readings in the last 6 hours; latest reading 12 minutes before analysis.",
                               "model": "openai/gpt-oss-120b",
                               "error": null,
-                              "createdAt": "2026-10-18T09:12:03Z"
+                              "createdAt": "2026-10-18T09:12:03Z",
+                              "scope": "MULTI_REGION",
+                              "regionsAbove": ["central", "north"],
+                              "regionsCompared": ["central", "north", "south"],
+                              "scopeSummary": "Central and north are both above their normal level, but south is not. Only 3 of 5 regions are reporting, so the picture is incomplete."
                             }
                             """)))
     @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired token", content = @Content)

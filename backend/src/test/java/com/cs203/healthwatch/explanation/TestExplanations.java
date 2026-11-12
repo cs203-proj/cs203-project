@@ -1,6 +1,7 @@
 package com.cs203.healthwatch.explanation;
 
 import com.cs203.healthwatch.detection.ReadingSnapshot;
+import com.cs203.healthwatch.detection.ScopeResult;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,6 +36,7 @@ final class TestExplanations {
 
     static ExplanationContext context(boolean replay, DataQuality quality, List<ReadingSnapshot> readings) {
         return new ExplanationContext(UUID.fromString("3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"), "central", "pm25",
-                Instant.parse("2026-10-18T03:00:00Z"), 6.12, replay, 18.0, 5.0, 3.0, 3, readings, quality);
+                Instant.parse("2026-10-18T03:00:00Z"), 6.12, replay, 18.0, 5.0, 3.0, 3, readings, quality,
+                ScopeResult.unknown("test"), List.of());
     }
 }

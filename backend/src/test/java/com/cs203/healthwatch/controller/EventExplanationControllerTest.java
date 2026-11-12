@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.cs203.healthwatch.common.exception.ResourceNotFoundException;
+import com.cs203.healthwatch.detection.SpatialScope;
 import com.cs203.healthwatch.explanation.Assessment;
 import com.cs203.healthwatch.explanation.EventExplanation;
 import com.cs203.healthwatch.explanation.EventExplanationService;
@@ -64,10 +65,18 @@ class EventExplanationControllerTest {
         e.setDataComplete(false);
         e.setDataQualityNote("Based on partial data: 4 of 6 expected readings in the last 6 hours.");
         e.setModel("groq-test-model");
+        e.setScope(SpatialScope.MULTI_REGION);
+        e.setRegionsAbove(List.of("central", "north"));
+        e.setRegionsCompared(List.of("central", "north", "south"));
+        e.setScopeSummary("Central and north are above; 3 of 5 regions reporting.");
         when(explanationService.getForEvent(EVENT_ID)).thenReturn(e);
 
         mockMvc.perform(get("/events/{id}/explanation", EVENT_ID).header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("MULTI_REGION"))
+                .andExpect(jsonPath("$.regionsAbove[1]").value("north"))
+                .andExpect(jsonPath("$.regionsCompared.length()").value(3))
+                .andExpect(jsonPath("$.scopeSummary").value("Central and north are above; 3 of 5 regions reporting."))
                 .andExpect(jsonPath("$.eventId").value(EVENT_ID.toString()))
                 .andExpect(jsonPath("$.status").value("OK"))
                 .andExpect(jsonPath("$.assessment").value("GENUINE_TREND"))
@@ -75,6 +84,22 @@ class EventExplanationControllerTest {
                 .andExpect(jsonPath("$.dataComplete").value(false))
                 .andExpect(jsonPath("$.dataQualityNote").value(
                         "Based on partial data: 4 of 6 expected readings in the last 6 hours."));
+    }
+
+    @Test
+    void legacyRowWithNullScope_returnsUnknownAndEmptyLists() throws Exception {
+        EventExplanation e = new EventExplanation(); // written before V16: scope and lists are null
+        e.setEventId(EVENT_ID);
+        e.setStatus(ExplanationStatus.OK);
+        e.setDataQualityNote("note");
+        when(explanationService.getForEvent(EVENT_ID)).thenReturn(e);
+
+        mockMvc.perform(get("/events/{id}/explanation", EVENT_ID).header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("UNKNOWN"))
+                .andExpect(jsonPath("$.regionsAbove").isEmpty())
+                .andExpect(jsonPath("$.regionsCompared").isEmpty())
+                .andExpect(jsonPath("$.scopeSummary").doesNotExist());
     }
 
     @Test

@@ -28,7 +28,8 @@ public interface WarningRepository extends JpaRepository<Warning, UUID> {
     // event has no explanation or no confidence is still listed. event_explanations.event_id and events.id are both
     // unique, so each warning matches at most one row and the paging and the count are unchanged.
     String QUEUE_ROWS = "select new com.cs203.healthwatch.warnings.WarningQueueRow("
-            + "w, x.status, x.assessment, x.likelyCause, e.confidenceScore, e.confidenceLevel)"
+            + "w, x.status, x.assessment, x.likelyCause, e.confidenceScore, e.confidenceLevel,"
+            + " x.scope, x.regionsAbove, x.regionsCompared, x.scopeSummary)"
             + " from Warning w"
             + " left join com.cs203.healthwatch.events.DetectedEvent e on e.id = w.eventId"
             + " left join com.cs203.healthwatch.explanation.EventExplanation x on x.eventId = w.eventId";

@@ -5,6 +5,11 @@ import com.cs203.healthwatch.detection.BaselineRepository;
 import com.cs203.healthwatch.detection.BaselineSnapshot;
 import com.cs203.healthwatch.detection.DetectionProperties;
 import com.cs203.healthwatch.detection.ReadingSnapshot;
+import com.cs203.healthwatch.detection.RegionReadings;
+import com.cs203.healthwatch.detection.ScopeResult;
+import com.cs203.healthwatch.detection.SpatialScopeCalculator;
+import com.cs203.healthwatch.ingestion.pm.PmSourceProperties;
+import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
@@ -15,6 +20,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,6 +50,7 @@ public class EventExplanationService {
     private final ReadingRepository readings;    // only needed by buildContext (retries)
     private final BaselineRepository baselines;   // only needed by buildContext (retries)
     private final DetectionProperties detection;  // only needed by buildContext (retries)
+    private final PmSourceProperties pm;        // only needed by buildContext and the scope (known regions)
     private final Clock clock;
 
     /**
@@ -57,20 +66,28 @@ public class EventExplanationService {
     public EventExplanationService(ExplanationClient client, EventExplanationRepository explanations,
                                    EventRepository events, ExplanationProperties props,
                                    ReadingRepository readings, BaselineRepository baselines,
-                                   DetectionProperties detection) {
-        this(client, explanations, events, props, readings, baselines, detection, Clock.systemUTC());
+                                   DetectionProperties detection, PmSourceProperties pm) {
+        this(client, explanations, events, props, readings, baselines, detection, pm, Clock.systemUTC());
     }
 
     /** Live path only (no retries): what the CG-135 tests use. */
     EventExplanationService(ExplanationClient client, EventExplanationRepository explanations,
                             EventRepository events, ExplanationProperties props, Clock clock) {
-        this(client, explanations, events, props, null, null, null, clock);
+        this(client, explanations, events, props, null, null, null, null, clock);
+    }
+
+    /** Retry tests: no known regions, so the scope is always UNKNOWN. */
+    EventExplanationService(ExplanationClient client, EventExplanationRepository explanations,
+                            EventRepository events, ExplanationProperties props,
+                            ReadingRepository readings, BaselineRepository baselines,
+                            DetectionProperties detection, Clock clock) {
+        this(client, explanations, events, props, readings, baselines, detection, null, clock);
     }
 
     EventExplanationService(ExplanationClient client, EventExplanationRepository explanations,
                             EventRepository events, ExplanationProperties props,
                             ReadingRepository readings, BaselineRepository baselines,
-                            DetectionProperties detection, Clock clock) {
+                            DetectionProperties detection, PmSourceProperties pm, Clock clock) {
         this.client = client;
         this.explanations = explanations;
         this.events = events;
@@ -78,6 +95,7 @@ public class EventExplanationService {
         this.readings = readings;
         this.baselines = baselines;
         this.detection = detection;
+        this.pm = pm;
         this.clock = clock;
     }
 
@@ -158,6 +176,10 @@ public class EventExplanationService {
         row.setDataComplete(context.dataQuality().complete());
         row.setDataQualityNote(context.dataQuality().note());
         row.setModel(client.modelName());
+        // computed in code, so it is stored even when the AI call fails
+        row.setScope(context.scope().scope());
+        row.setRegionsAbove(context.scope().regionsAbove());
+        row.setRegionsCompared(context.scope().regionsCompared());
 
         boolean rateLimited = false;
         Duration retryAfter = null;
@@ -169,6 +191,7 @@ public class EventExplanationService {
             row.setExplanation(ai.explanation());
             row.setEvidence(ai.evidence());
             row.setAssumptions(ai.assumptions());
+            row.setScopeSummary(ai.scopeSummary());
             row.setError(null);
         } catch (Exception e) {
             log.error("AI explanation failed for event {} ({}/{}), attempt {}; event stays NEW: {}",
@@ -226,7 +249,54 @@ public class EventExplanationService {
         return new ExplanationContext(event.getId(), event.getRegion(),
                 event.getSignalType(), event.getDetectedAt(),
                 event.getDeviation() == null ? Double.NaN : event.getDeviation(), event.isReplay(),
-                baseline.median(), baseline.scaledMad(), zThreshold, consecutiveReadings, evidence, quality);
+                baseline.median(), baseline.scaledMad(), zThreshold, consecutiveReadings, evidence, quality,
+                scopeFor(event, baseline, readings, zThreshold), knownRegions());
+    }
+
+    private List<String> knownRegions() {
+        return pm == null ? List.of() : pm.regions().stream().map(PmSourceProperties.Region::name).sorted().toList();
+    }
+
+    /**
+     * Local spike or island-wide (CG-169). Readings: each region's newest valid one in (detectedAt - maxGap,
+     * detectedAt], picked like DetectionOrchestrator.sourceAgreement does; the flagged region's own come from
+     * {@code flaggedReadings}. Baselines: BaselineRepository.latestBaseline, the source detection uses. For a replay
+     * that is the CURRENT baseline, not the one at event time. Never throws: any failure gives UNKNOWN, so the
+     * explanation is still written.
+     */
+    private ScopeResult scopeFor(DetectedEvent event, BaselineSnapshot baseline, List<ReadingSnapshot> flaggedReadings,
+                                 double zThreshold) {
+        try {
+            if (readings == null || baselines == null || detection == null || pm == null) {
+                return ScopeResult.unknown("the cross-region data was not available");
+            }
+            Instant end = event.getDetectedAt();
+            Set<String> known = Set.copyOf(knownRegions());
+            List<ReadingSnapshot> all = new ArrayList<>(flaggedReadings);
+            for (Reading r : readings.findOtherRegionsValidBetween(event.getRegion(), detection.sourceType(),
+                    event.isReplay(), end.minus(detection.maxGap()).atOffset(ZoneOffset.UTC),
+                    end.atOffset(ZoneOffset.UTC))) {
+                all.add(new ReadingSnapshot(r.getRegion(), event.getSignalType(), r.getValue(),
+                        r.getObservedAt().toInstant()));
+            }
+            Map<String, ReadingSnapshot> atSameTime = new HashMap<>();
+            for (ReadingSnapshot r : RegionReadings.newestPerRegionWithin(all, end, detection.maxGap())) {
+                atSameTime.put(r.region(), r);
+            }
+            Map<String, BaselineSnapshot> regionBaselines = new HashMap<>();
+            regionBaselines.put(event.getRegion(), baseline);
+            for (String region : atSameTime.keySet()) {
+                if (!regionBaselines.containsKey(region)) {
+                    baselines.latestBaseline(region, event.getSignalType(), detection.sourceType())
+                            .ifPresent(b -> regionBaselines.put(region, b));
+                }
+            }
+            return SpatialScopeCalculator.computeScope(event.getRegion(), atSameTime, regionBaselines, known,
+                    zThreshold);
+        } catch (Exception e) {
+            log.warn("Could not compute the spatial scope for event {}: {}", event.getId(), e.getMessage(), e);
+            return ScopeResult.unknown("the comparison could not be computed");
+        }
     }
 
     /** For GET /events/{id}/explanation. */
