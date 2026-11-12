@@ -50,17 +50,17 @@ const SHOW_HOURS_UP_TO = 48;
 
 const TOKEN_KEY = "hw_token";
 
-// sessionStorage (CG-4 AC): the token is gone when the browser tab/window is closed, and is never hard-coded.
+// localStorage keeps the token across tabs and browser restarts; the server still enforces its expiry.
 function saveToken(token) {
-  sessionStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_KEY, token);
 }
 
 function getToken() {
-  return sessionStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 function clearToken() {
-  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
 }
 
 /** Tells the server, then discards the token. The token is discarded even if the server can't be reached. */
