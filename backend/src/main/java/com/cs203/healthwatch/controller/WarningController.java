@@ -98,8 +98,8 @@ public class WarningController {
                                     "status": "UNAVAILABLE",
                                     "assessment": null,
                                     "likelyCause": null,
-                                    "confidenceScore": null,
-                                    "confidenceLevel": null
+                                    "confidenceScore": 0.31,
+                                    "confidenceLevel": "LOW"
                                   }
                                 }
                               ],
