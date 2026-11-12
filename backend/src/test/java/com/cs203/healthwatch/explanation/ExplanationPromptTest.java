@@ -53,4 +53,13 @@ class ExplanationPromptTest {
                 .contains("If the scope is UNKNOWN, say plainly")
                 .contains("scopeSummary");
     }
+
+    @Test
+    void promptStatesTheGeographyBanAndThePm25Unit() {
+        assertThat(ExplanationPrompt.SYSTEM_INSTRUCTION)
+                .contains("Never describe regions as nearby, neighbouring, adjacent or close to each other")
+                .contains("make no other claim about their geography")
+                .contains("likelyCause stays a hedged hypothesis");
+        assertThat(facts(ScopeResult.unknown("x"))).contains("PM2.5 readings are in \u00b5g/m\u00b3.");
+    }
 }

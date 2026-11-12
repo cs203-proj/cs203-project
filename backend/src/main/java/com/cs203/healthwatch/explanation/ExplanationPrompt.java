@@ -35,6 +35,9 @@ public final class ExplanationPrompt {
             "3 of 5 regions reporting". If regions are missing, say the picture is incomplete.
             - If the scope is UNKNOWN, say plainly that the comparison could not be made and give the reason shown. \
             Never guess whether the spike is local or island-wide.
+            - Never describe regions as nearby, neighbouring, adjacent or close to each other, and make no other \
+            claim about their geography.
+            - likelyCause stays a hedged hypothesis (for example "consistent with ..."), never stated as fact.
             - scopeSummary: 1 to 2 sentences about the scope only, following the rules above.
             - explanation: at most 4 sentences. evidence: 2 to 5 short facts taken from the data. assumptions: 1 to \
             4 things your explanation takes for granted.
@@ -46,6 +49,7 @@ public final class ExplanationPrompt {
         sb.append("Flagged event").append(c.replay() ? " (REPLAY of historical data for a demo, not live)" : "")
                 .append('\n');
         sb.append("- Signal: ").append(c.signalType()).append('\n');
+        sb.append("- PM2.5 readings are in \u00b5g/m\u00b3.").append('\n');
         sb.append("- Region: ").append(c.region()).append('\n');
         sb.append("- Detected at (UTC): ").append(c.detectedAt()).append('\n');
         sb.append("- Largest robust z-score among breaching readings: ").append(fmt(c.deviation())).append('\n');
