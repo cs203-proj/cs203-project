@@ -3,7 +3,48 @@
  *
  * The frontend holds no business rules: it calls the API and shows what comes back.
  * The backend stays the source of truth (validation, allowed transitions, confidence, audit).
+ *
+ * Non-ASCII characters in code are written as escapes ("–" for a dash, "σ" for sigma), never typed in.
+ * The .js files are served without a charset, so a browser may decode them as Windows-1252 and show "â€“" instead
+ * of "–". Escapes look the same whatever encoding is guessed.
  */
+
+/* ---------- Constants (every number the pages use lives here, with a name) ---------- */
+
+/** HTTP status codes the pages react to. */
+const HTTP = {
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  SERVER_ERROR: 500,
+};
+
+/**
+ * Most items a list request asks for. Matches the backend's maximum page size for GET /events and
+ * GET /warnings (EventService.MAX_LIMIT and WarningService.MAX_LIMIT; larger values get a 400),
+ * so the pages fetch "everything up to this many" in one call. Keep the two in step.
+ */
+const MAX_PAGE_SIZE = 200;
+
+/** For requests where only the "total" in the response is needed (tab counts, sidebar badge). */
+const COUNT_ONLY = 1;
+
+/** How long a success message stays at the bottom of the screen. */
+const TOAST_DURATION_MS = 3500;
+
+/** Time units, so time maths reads as words. */
+const MS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+const MS_PER_MINUTE = MS_PER_SECOND * SECONDS_PER_MINUTE;
+const MS_PER_HOUR = MS_PER_MINUTE * MINUTES_PER_HOUR;
+const MS_PER_DAY = MS_PER_HOUR * HOURS_PER_DAY;
+
+/** Durations up to this many hours are shown in hours ("36 h"); longer ones in days ("3 days"). */
+const SHOW_HOURS_UP_TO = 48;
 
 /* ---------- Token (the same thing you paste into Swagger's Authorize box) ---------- */
 
@@ -22,7 +63,13 @@ function clearToken() {
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
-function logout() {
+/** Tells the server, then discards the token. The token is discarded even if the server can't be reached. */
+async function logout() {
+  try {
+    await api("/auth/logout", { method: "POST" });
+  } catch (e) {
+    // Signing out must still work when the server is down; the token is discarded below either way.
+  }
   clearToken();
   window.location.href = "login.html";
 }
@@ -42,10 +89,34 @@ function tokenPayload() {
 /** Sends the user to the login page if there is no token or it has expired (tokens last 30 min). */
 function requireLogin() {
   const payload = tokenPayload();
-  const expired = payload && payload.exp && payload.exp * 1000 < Date.now();
+  const expired = payload && payload.exp && payload.exp * MS_PER_SECOND < Date.now(); // exp is in seconds
   if (!payload || expired) {
     clearToken();
     window.location.href = "login.html" + (expired ? "?expired=1" : "");
+    return false;
+  }
+  return true;
+}
+
+/** True for an admin token. The server compares roles case-insensitively, so this does too. */
+function isAdmin() {
+  const payload = tokenPayload();
+  return !!payload && String(payload.role).toUpperCase() === "ADMIN";
+}
+
+/** Where a signed-in person starts: the review queue for admins, their own warnings for everyone else. */
+function homePage() {
+  return isAdmin() ? "queue.html" : "my-warnings.html";
+}
+
+/**
+ * For the admin console pages. A signed-in non-admin is sent to their own pages instead of seeing 403 errors.
+ * The server still enforces this (SecurityConfig: hasRole("ADMIN")).
+ */
+function requireAdmin() {
+  if (!requireLogin()) return false;
+  if (!isAdmin()) {
+    window.location.href = homePage();
     return false;
   }
   return true;
@@ -86,10 +157,10 @@ async function api(path, options = {}) {
   }
 
   // Token missing or expired: back to login (except on the login call itself, where 401 = wrong password).
-  if (response.status === 401 && !path.startsWith("/auth/")) {
+  if (response.status === HTTP.UNAUTHORIZED && !path.startsWith("/auth/")) {
     clearToken();
     window.location.href = "login.html?expired=1";
-    throw new ApiError(401, "Your session has expired. Please sign in again.");
+    throw new ApiError(HTTP.UNAUTHORIZED, "Your session has expired. Please sign in again.");
   }
 
   const text = await response.text();
@@ -110,14 +181,24 @@ async function api(path, options = {}) {
 /** Picks the most useful message from an error response. */
 function errorMessage(status, data) {
   if (data && typeof data === "object") {
-    const details = Array.isArray(data.details) && data.details.length ? " (" + data.details.join("; ") + ")" : "";
-    if (data.message) return data.message + details;
-    if (data.error && status !== 403) return data.error;
+    // Validation errors (400) come as details like "password: password must be between 8 and 72 characters".
+    // Show just the messages, without the field name, as sentences.
+    if (Array.isArray(data.details) && data.details.length) {
+      return data.details.map(toSentence).join(" ");
+    }
+    if (data.message) return data.message;
+    if (data.error && status !== HTTP.FORBIDDEN) return data.error;
   }
-  if (status === 403) return "You need an admin account to do this.";
-  if (status === 404) return "Not found.";
-  if (status >= 500) return "Something went wrong on the server (HTTP " + status + "). Try again in a moment.";
+  if (status === HTTP.FORBIDDEN) return "You need an admin account to do this.";
+  if (status === HTTP.NOT_FOUND) return "Not found.";
+  if (status >= HTTP.SERVER_ERROR) return "Something went wrong on the server (HTTP " + status + "). Try again in a moment.";
   return "Request failed (HTTP " + status + ").";
+}
+
+/** "password: password must be ..." -> "Password must be ...". */
+function toSentence(detail) {
+  const text = String(detail).replace(/^[\w.]+:\s*/, "");
+  return text.charAt(0).toUpperCase() + text.slice(1) + (/[.!?]$/.test(text) ? "" : ".");
 }
 
 /* ---------- Formatting ---------- */
@@ -138,7 +219,7 @@ function esc(value) {
 
 /** "2026-09-24T03:15:00Z" -> "24 Sep 2026, 11:15 am" in Singapore time. */
 function formatTime(iso) {
-  if (!iso) return "–";
+  if (!iso) return "\u2013";
   return new Date(iso).toLocaleString("en-SG", {
     timeZone: "Asia/Singapore", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
   });
@@ -147,34 +228,34 @@ function formatTime(iso) {
 /** "2026-09-24T03:15:00Z" -> "3 h". */
 function duration(iso) {
   if (!iso) return "";
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  if (minutes < 60) return minutes + " min";
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return hours + " h";
-  return Math.round(hours / 24) + " days";
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / MS_PER_MINUTE));
+  if (minutes < MINUTES_PER_HOUR) return minutes + " min";
+  const hours = Math.round(minutes / MINUTES_PER_HOUR);
+  if (hours < SHOW_HOURS_UP_TO) return hours + " h";
+  return Math.round(hours / HOURS_PER_DAY) + " days";
 }
 
 /** "UNDER_REVIEW" -> "Under review". */
 function label(value) {
-  if (!value) return "–";
+  if (!value) return "\u2013";
   const text = String(value).replace(/_/g, " ").toLowerCase();
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function formatNumber(value, digits = 2) {
-  return value === null || value === undefined ? "–" : Number(value).toFixed(digits);
+  return value === null || value === undefined ? "\u2013" : Number(value).toFixed(digits);
 }
 
 /** Coloured pill for a status, severity, verdict or confidence level. The CSS class comes from the value. */
 function badge(value, withDot = false) {
-  if (!value) return '<span class="badge">–</span>';
+  if (!value) return '<span class="badge">\u2013</span>';
   return '<span class="badge badge-' + esc(String(value).toLowerCase()) + '">' +
     (withDot ? '<i class="dot"></i>' : "") + esc(label(value)) + "</span>";
 }
 
 /** Confidence uses its own colours: high confidence is good news (green), unlike high severity (red). */
 function confidenceBadge(level) {
-  if (!level) return '<span class="badge">–</span>';
+  if (!level) return '<span class="badge">\u2013</span>';
   return '<span class="badge badge-conf-' + esc(String(level).toLowerCase()) + '">' + esc(label(level)) + "</span>";
 }
 
@@ -184,9 +265,45 @@ function signalName(type) {
   return SIGNAL_NAMES[String(type).toLowerCase()] || type;
 }
 
+/*
+ * Profile codes and how to show them. The codes are the backend's (Region, Audience and HealthCondition enums,
+ * frozen for CG-154 / CG-22); only the wording here is the frontend's. The backend rejects any other code with a 400.
+ */
+const REGIONS = [
+  { code: "central", text: "Central" },
+  { code: "north", text: "North" },
+  { code: "south", text: "South" },
+  { code: "east", text: "East" },
+  { code: "west", text: "West" },
+];
+const AUDIENCES = [
+  { code: "GENERAL_PUBLIC", text: "General public", hint: "Standard advice for healthy adults." },
+  { code: "VULNERABLE", text: "Vulnerable groups",
+    hint: "Children, older adults, pregnant women and people with heart or lung conditions." },
+  { code: "HEALTHCARE_WORKER", text: "Healthcare worker", hint: "Advice for clinics, hospitals and carers." },
+];
+const HEALTH_CONDITIONS = [
+  { code: "ASTHMA", text: "Asthma" },
+  { code: "COPD", text: "COPD" },
+  { code: "HEART_DISEASE", text: "Heart disease" },
+  { code: "DIABETES", text: "Diabetes" },
+  { code: "PREGNANCY", text: "Pregnancy" },
+];
+
+/** Display text for a code from one of the lists above, e.g. codeText(AUDIENCES, "VULNERABLE"). */
+function codeText(list, code) {
+  const item = list.find((entry) => entry.code === code);
+  return item ? item.text : label(code);
+}
+
+/** 0.75 -> 75 (a 0..1 fraction as a whole percentage, kept between 0 and 100). */
+function toPercent(fraction) {
+  return Math.max(0, Math.min(100, Math.round((fraction || 0) * 100)));
+}
+
 /** Thin bar showing a 0..1 score. */
 function scoreBar(score) {
-  const width = Math.max(0, Math.min(100, Math.round((score || 0) * 100)));
+  const width = toPercent(score);
   return '<span class="score-bar"><i style="width: ' + width + '%"></i></span>';
 }
 
@@ -212,7 +329,7 @@ function showMessage(text, type = "error") {
     toast.innerHTML = html;
     toast.classList.add("show");
     clearTimeout(showMessage.timer);
-    showMessage.timer = setTimeout(() => toast.classList.remove("show"), 3500);
+    showMessage.timer = setTimeout(() => toast.classList.remove("show"), TOAST_DURATION_MS);
     return;
   }
   const box = document.getElementById("message");
@@ -265,13 +382,34 @@ function confirmDialog({ title, body, confirmText = "Confirm", cancelText = "Can
 async function withButton(button, action) {
   const original = button.innerHTML;
   button.disabled = true;
-  button.textContent = "Working…";
+  button.textContent = "Working\u2026";
   try {
     await action();
   } finally {
     button.disabled = false;
     button.innerHTML = original;
   }
+}
+
+/**
+ * The round-arrow refresh button in a page's top bar (icon only; the tooltip says "Refresh").
+ * Reloads that page's data; the arrow spins while it loads, and extra clicks are ignored until it's done.
+ */
+function setUpRefresh(button, reload) {
+  button.innerHTML = icon("refresh", 18);
+  button.title = "Refresh";
+  button.setAttribute("aria-label", "Refresh");
+  button.addEventListener("click", async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.classList.add("spinning");
+    try {
+      await reload();
+    } finally {
+      button.disabled = false;
+      button.classList.remove("spinning");
+    }
+  });
 }
 
 /* ---------- Icons (inline SVG, so no icon library is needed) ---------- */
@@ -299,6 +437,11 @@ const ICON_PATHS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
   sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  bell: '<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6"/><path d="M5 7l1 13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-13M9 7V4h6v3"/>',
+  sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z"/>',
+  pin: '<path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12Z"/><circle cx="12" cy="9" r="2.5"/>',
 };
 
 function icon(name, size = 18) {
@@ -308,27 +451,34 @@ function icon(name, size = 18) {
 
 /* ---------- Sidebar (same on every page) ---------- */
 
-const NAV_LINKS = [
+/** Admins get the console; everyone else gets their own warnings and settings. */
+const ADMIN_NAV_LINKS = [
   { href: "queue.html", text: "Review warnings", icon: "grid" },
   { href: "events.html", text: "Events", icon: "pulse" },
   { href: "sources.html", text: "Data sources", icon: "database" },
+];
+const USER_NAV_LINKS = [
+  { href: "my-warnings.html", text: "My warnings", icon: "bell" },
+  { href: "settings.html", text: "Settings", icon: "user" },
 ];
 
 function renderSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
-  const current = window.location.pathname.split("/").pop() || "queue.html";
+  const current = window.location.pathname.split("/").pop() || homePage();
   const username = (tokenPayload() || {}).sub || "";
+  const admin = isAdmin();
+  const links = admin ? ADMIN_NAV_LINKS : USER_NAV_LINKS;
 
   applySidebarState();
   sidebar.innerHTML =
     '<div class="side-brand"><div class="brand-mark">' + icon("pulse", 21) + "</div>" +
-      "<div><strong>HealthWatch</strong><span>Admin console</span></div>" +
+      "<div><strong>HealthWatch</strong><span>" + (admin ? "Admin console" : "Your health alerts") + "</span></div>" +
       '<button type="button" class="collapse-btn" id="collapse-sidebar" aria-label="Collapse sidebar" title="Collapse sidebar">' +
         icon("sidebar", 18) + "</button></div>" +
-    '<div class="nav-label">Workspace</div>' +
+    '<div class="nav-label">' + (admin ? "Workspace" : "Your account") + "</div>" +
     "<nav>" +
-      NAV_LINKS.map((link) =>
+      links.map((link) =>
         '<a href="' + link.href + '" title="' + esc(link.text) + '"' + (link.href === current ? ' class="active"' : "") + ">" +
           icon(link.icon) + "<span>" + esc(link.text) + "</span>" +
           (link.href === "queue.html" ? '<b id="pending-count" hidden></b>' : "") +
@@ -336,7 +486,7 @@ function renderSidebar() {
     "</nav>" +
     '<div class="side-bottom"><div class="user-card">' +
       '<div class="avatar">' + esc(username.slice(0, 2)) + "</div>" +
-      "<div><strong>" + esc(username) + "</strong><span>Administrator</span></div>" +
+      "<div><strong>" + esc(username) + "</strong><span>" + (admin ? "Administrator" : "User") + "</span></div>" +
       '<button type="button" id="logout" title="Sign out" aria-label="Sign out">' + icon("logout", 17) + "</button>" +
     "</div></div>";
 
@@ -345,7 +495,7 @@ function renderSidebar() {
     setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"));
   });
   setSidebarCollapsed(document.body.classList.contains("sidebar-collapsed")); // sets the button's label
-  updatePendingCount();
+  if (admin) updatePendingCount();
 }
 
 /* The sidebar's open/closed state is remembered in this browser (localStorage), so it stays the same across pages. */
@@ -408,7 +558,7 @@ document.addEventListener("keydown", (e) => {
 /** Number of warnings waiting for review, shown next to "Review warnings" in the sidebar. */
 async function updatePendingCount() {
   try {
-    const page = await api("/warnings?status=PENDING_REVIEW&limit=1");
+    const page = await api("/warnings?status=PENDING_REVIEW&limit=" + COUNT_ONLY);
     const count = document.getElementById("pending-count");
     count.textContent = page.total;
     count.hidden = page.total === 0;

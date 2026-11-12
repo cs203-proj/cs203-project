@@ -8,10 +8,10 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 </head>
 <body>
-  <!-- Entry point: go to the queue if signed in, otherwise to the sign-in page. -->
+  <!-- Entry point: signed in goes to the right home page (admin queue or my warnings), otherwise to the sign-in page. -->
   <script src="js/api.js"></script>
   <script>
-    window.location.replace(getToken() ? "queue.html" : "login.html");
+    window.location.replace(getToken() ? homePage() : "login.html");
   </script>
 </body>
 </html>

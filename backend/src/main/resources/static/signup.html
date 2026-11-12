@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HealthWatch | Create an account</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="login-shell">
+    <div>
+      <!-- POST /auth/register (CG-5) with the consent from GET /consent (CG-8), then POST /auth/login -->
+      <form class="login-card signup-card" id="signup-form" novalidate>
+        <div class="brand-mark" id="signup-mark"></div>
+        <div class="auth-heading">
+          <h2>Create an account</h2>
+          <p>Sign up to use HealthWatch</p>
+        </div>
+
+        <div id="message" class="message" hidden></div>
+
+        <label class="field">Username
+          <input type="text" id="username" autocomplete="username" placeholder="Choose a username" required>
+        </label>
+
+        <label class="field">Password
+          <div class="password-field">
+            <input type="password" id="password" autocomplete="new-password" placeholder="Choose a password" required>
+            <button type="button" id="toggle-password" aria-label="Show password"></button>
+          </div>
+        </label>
+
+        <label class="field">Confirm password
+          <div class="password-field">
+            <input type="password" id="confirm" autocomplete="new-password" placeholder="Confirm password" required>
+            <button type="button" id="toggle-confirm" aria-label="Show password"></button>
+          </div>
+        </label>
+
+        <div class="consent-box">
+          <span class="label-sm">How we use your information</span>
+          <div class="consent-text" id="consent-text">Loading&hellip;</div>
+        </div>
+        <label class="check consent-check">
+          <input type="checkbox" id="consent" disabled>
+          <span>I have read and agree to how my information is used, as stated above.</span>
+        </label>
+
+        <button type="submit" class="btn btn-primary" id="submit" disabled></button>
+        <p class="login-footer">Already have an account? <a href="login.html">Sign in</a></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/signup.js"></script>
+</body>
+</html>

@@ -4,12 +4,15 @@
  *   Detail:  GET /events/{id}/explanation, /events/{id}/warnings, /events/{id}/audit
  *   Action:  PATCH /events/{id}/status
  *
- * There is no GET /events/{id}, so the detail view finds the event in GET /events (top 200).
+ * There is no GET /events/{id}, so the detail view finds the event in GET /events (up to MAX_PAGE_SIZE).
  */
 
 const EVENT_STATUSES = ["", "NEW", "UNDER_REVIEW", "CONFIRMED", "DISMISSED"]; // "" = all
 let currentStatus = "";
 let listedEvents = []; // events loaded for the current status tab; the region filter works on these
+
+/** Start of the stored error when the AI provider rate-limited the call (backend RateLimitedException.PREFIX). */
+const RATE_LIMITED_PREFIX = "RATE_LIMITED:";
 
 /*
  * Which buttons to show for each status. This only hides buttons the backend would reject anyway;
@@ -27,7 +30,7 @@ const ACTIONS = {
   DISMISSED: { text: "Dismiss", style: "btn-danger", icon: "x" },
 };
 
-if (requireLogin()) {
+if (requireAdmin()) {
   renderSidebar();
   const id = new URLSearchParams(window.location.search).get("id");
   if (id) {
@@ -49,6 +52,10 @@ function showList() {
     });
   });
   document.getElementById("region-filter").addEventListener("change", renderEventRows);
+  setUpRefresh(document.getElementById("refresh"), async () => {
+    loadTabCounts();
+    await loadEvents();
+  });
   loadTabCounts();
   loadEvents();
 }
@@ -57,7 +64,7 @@ async function loadTabCounts() {
   const buttons = document.querySelectorAll("#status-tabs button");
   EVENT_STATUSES.forEach(async (status, i) => {
     try {
-      const page = await api("/events?limit=1" + (status ? "&status=" + status : ""));
+      const page = await api("/events?limit=" + COUNT_ONLY + (status ? "&status=" + status : ""));
       buttons[i].querySelector("span").textContent = page.total;
     } catch (e) {
       buttons[i].querySelector("span").textContent = "";
@@ -68,9 +75,9 @@ async function loadTabCounts() {
 async function loadEvents() {
   clearMessage();
   const rows = document.getElementById("event-rows");
-  rows.innerHTML = '<tr><td colspan="7" class="empty">Loading…</td></tr>';
+  rows.innerHTML = '<tr><td colspan="7" class="empty">Loading\u2026</td></tr>';
   try {
-    const page = await api("/events?limit=200" + (currentStatus ? "&status=" + currentStatus : ""));
+    const page = await api("/events?limit=" + MAX_PAGE_SIZE + (currentStatus ? "&status=" + currentStatus : ""));
     listedEvents = page.items;
     fillRegionOptions();
     renderEventRows();
@@ -108,13 +115,13 @@ function renderEventRows() {
 function eventRow(event) {
   const confidence = event.confidence
     ? '<div class="confidence-cell">' + scoreBar(event.confidence.score) + formatNumber(event.confidence.score) + "</div>"
-    : '<span class="muted">–</span>';
+    : '<span class="muted">\u2013</span>';
   return (
     '<tr class="clickable" data-id="' + esc(event.id) + '">' +
       "<td><strong>" + esc(formatTime(event.timestamp)) + "</strong></td>" +
       "<td>" + esc(label(event.region)) + "</td>" +
       "<td>" + esc(signalName(event.signalType)) + "</td>" +
-      "<td><strong>" + formatNumber(event.deviationSize, 1) + "σ</strong></td>" +
+      "<td><strong>" + formatNumber(event.deviationSize, 1) + "\u03C3</strong></td>" +
       "<td>" + confidence + "</td>" +
       "<td>" + badge(event.status) + "</td>" +
       '<td class="chev">' + icon("chevron", 16) + "</td>" +
@@ -130,11 +137,11 @@ async function showDetail(id) {
   if (listView) listView.remove();
   const view = document.getElementById("detail-view");
   view.hidden = false;
-  view.innerHTML = detailHeader(null) + '<div class="page"><div id="message" class="message" hidden></div><div class="panel empty">Loading…</div></div>';
+  view.innerHTML = detailHeader(null) + '<div class="page"><div id="message" class="message" hidden></div><div class="panel empty">Loading\u2026</div></div>';
 
   let event;
   try {
-    const page = await api("/events?limit=200");
+    const page = await api("/events?limit=" + MAX_PAGE_SIZE);
     event = page.items.find((e) => e.id === id);
   } catch (error) {
     showMessage(error.message);
@@ -142,7 +149,7 @@ async function showDetail(id) {
   }
   if (!event) {
     view.querySelector(".page").innerHTML =
-      '<div class="note note-warn">' + icon("warning", 17) + "<div>This event isn't among the 200 largest events. " +
+      '<div class="note note-warn">' + icon("warning", 17) + "<div>This event isn't among the " + MAX_PAGE_SIZE + " largest events. " +
       '<a href="events.html">Back to the list</a>.</div></div>';
     return;
   }
@@ -155,11 +162,11 @@ async function showDetail(id) {
       '<div class="detail-grid">' +
         "<div>" +
           confidencePanel(event.confidence) +
-          '<section class="panel" id="explanation"><h2>AI explanation</h2><p class="muted">Loading…</p></section>' +
-          '<section class="panel" id="event-warnings"><h2>Drafted warnings</h2><p class="muted">Loading…</p></section>' +
+          '<section class="panel" id="explanation"><h2>AI explanation</h2><p class="muted">Loading\u2026</p></section>' +
+          '<section class="panel" id="event-warnings"><h2>Drafted warnings</h2><p class="muted">Loading\u2026</p></section>' +
         "</div>" +
         "<div>" +
-          '<section class="panel" id="event-audit"><h2>Status history</h2><p class="muted">Loading…</p></section>' +
+          '<section class="panel" id="event-audit"><h2>Status history</h2><p class="muted">Loading\u2026</p></section>' +
         "</div>" +
       "</div>" +
     "</div>";
@@ -167,6 +174,7 @@ async function showDetail(id) {
   view.querySelectorAll("[data-next]").forEach((button) => {
     button.addEventListener("click", () => changeStatus(event, button.dataset.next, button));
   });
+  setUpRefresh(document.getElementById("refresh"), () => showDetail(id)); // reloads the whole event
 
   // Each section loads on its own, so one failing (e.g. no explanation yet) doesn't block the others.
   loadExplanation(id);
@@ -185,11 +193,12 @@ function detailHeader(event) {
     '<header class="topbar">' +
       '<a class="back" href="events.html" aria-label="Back to events">' + icon("back") + "</a>" +
       "<div>" +
-        '<div class="eyebrow">Events' + (event ? " / " + esc(event.id.slice(0, 8)) : "") + "</div>" +
-        "<h1>" + (event ? esc(signalName(event.signalType)) + " · " + esc(label(event.region)) : "Event") + "</h1>" +
+        '<div class="eyebrow">Events' + (event ? " / Detected " + esc(formatTime(event.timestamp)) : "") + "</div>" +
+        "<h1>" + (event ? esc(signalName(event.signalType)) + " \u00B7 " + esc(label(event.region)) : "Event") + "</h1>" +
       "</div>" +
       (event ? badge(event.status) : "") +
-      '<div class="actions">' + actions + "</div>" +
+      '<div class="actions">' + actions +
+        (event ? '<button type="button" class="icon-btn refresh-btn" id="refresh"></button>' : "") + "</div>" +
     "</header>"
   );
 }
@@ -200,9 +209,9 @@ function summaryBar(event) {
     '<section class="detail-summary">' +
       "<div><span>Detected</span><strong>" + esc(formatTime(event.timestamp)) + "</strong></div>" +
       "<div><span>Region</span><strong>" + esc(label(event.region)) + "</strong></div>" +
-      "<div><span>Deviation</span><strong>" + formatNumber(event.deviationSize, 1) + "σ above baseline</strong></div>" +
+      "<div><span>Deviation</span><strong>" + formatNumber(event.deviationSize, 1) + "\u03C3 above baseline</strong></div>" +
       '<div><span>Confidence</span><strong class="accent">' +
-        (c ? formatNumber(c.score) + " · " + esc(label(c.level)) : "Not scored") + "</strong></div>" +
+        (c ? formatNumber(c.score) + " \u00B7 " + esc(label(c.level)) : "Not scored") + "</strong></div>" +
     "</section>"
   );
 }
@@ -214,10 +223,10 @@ function confidencePanel(c) {
       "Not scored: this event was created before confidence scoring existed.</p></section>";
   }
   const inputs = c.inputs || {};
-  const minutes = Math.round((inputs.stalenessSeconds || 0) / 60);
+  const minutes = Math.round((inputs.stalenessSeconds || 0) / SECONDS_PER_MINUTE);
   const agreement = inputs.sourceAgreement === null || inputs.sourceAgreement === undefined
-    ? { value: "–", note: "No comparable region" }
-    : { value: Math.round(inputs.sourceAgreement * 100) + "%", note: "of other regions also spiked" };
+    ? { value: "\u2013", note: "No comparable region" }
+    : { value: toPercent(inputs.sourceAgreement) + "%", note: "of other regions also spiked" };
   return (
     '<section class="panel">' +
       '<div class="panel-title"><div><h2>Confidence breakdown</h2><p>Computed from measured inputs, not by the AI (formula v' +
@@ -225,8 +234,8 @@ function confidencePanel(c) {
         '<div style="text-align: right"><div class="big-score">' + formatNumber(c.score) + "</div>" + confidenceBadge(c.level) + "</div></div>" +
       '<div class="factor-grid">' +
         factor("Data staleness", minutes + " min", "since the newest reading") +
-        factor("Reading count", esc(inputs.readingCount), "valid readings in 24 h") +
-        factor("Deviation", formatNumber(inputs.deviationSize, 1) + "σ", "robust z-score") +
+        factor("Reading count", esc(inputs.readingCount), "valid readings used for the score") +
+        factor("Deviation", formatNumber(inputs.deviationSize, 1) + "\u03C3", "robust z-score") +
         factor("Source agreement", agreement.value, agreement.note) +
       "</div>" +
     "</section>"
@@ -242,15 +251,22 @@ async function loadExplanation(id) {
   try {
     const e = await api("/events/" + id + "/explanation");
     if (e.status === "FAILED") {
+      // CG-152: a rate-limited call is stored with this prefix; failed calls are retried in the background.
+      const rateLimited = String(e.error || "").startsWith(RATE_LIMITED_PREFIX);
+      const reason = rateLimited ? e.error.slice(RATE_LIMITED_PREFIX.length).trim() : e.error;
       box.innerHTML =
         '<div class="panel-title"><div><div class="eyebrow">AI assessment</div><h2>AI explanation</h2></div>' + badge("FAILED") + "</div>" +
-        '<p class="explanation-text">The AI call failed, so there is no explanation. The event itself is unaffected.</p>' +
-        '<p class="small muted" style="margin: 6px 0 14px">Reason: ' + esc(e.error) + "</p>" +
+        '<p class="explanation-text">' +
+          (rateLimited ? "The AI provider's rate limit was reached, so there is no explanation yet. "
+                       : "The AI call failed, so there is no explanation yet. ") +
+          "While the event is New, the system tries again automatically; reload later to check. " +
+          "The event itself is unaffected.</p>" +
+        '<p class="small muted" style="margin: 6px 0 14px">Reason: ' + esc(reason) + "</p>" +
         dataQualityNote(e);
       return;
     }
     box.innerHTML =
-      '<div class="panel-title"><div><div class="eyebrow">AI assessment · ' + esc(e.model) + "</div><h2>Event explanation</h2></div>" +
+      '<div class="panel-title"><div><div class="eyebrow">AI assessment \u00B7 ' + esc(e.model) + "</div><h2>Event explanation</h2></div>" +
         badge(e.assessment) + "</div>" +
       '<div class="cause"><span class="label-sm">Likely cause</span><strong>' + esc(e.likelyCause) + "</strong></div>" +
       '<p class="explanation-text">' + esc(e.explanation) + "</p>" +
@@ -261,7 +277,7 @@ async function loadExplanation(id) {
       '<div style="margin-top: 16px">' + dataQualityNote(e) + "</div>";
   } catch (error) {
     box.innerHTML = '<h2>AI explanation</h2><p class="muted" style="margin-top: 8px">' +
-      (error.status === 404 ? "No explanation yet for this event." : esc(error.message)) + "</p>";
+      (error.status === HTTP.NOT_FOUND ? "No explanation yet for this event." : esc(error.message)) + "</p>";
   }
 }
 
@@ -289,7 +305,8 @@ async function loadEventWarnings(id) {
         : warnings.map((w) =>
             '<div class="mini-warning"><div class="badges">' + badge(w.severity) + badge(w.status) +
             '<span class="small muted">' + esc(label(w.audience)) + "</span></div>" +
-            "<p>" + esc(w.warningText) + "</p></div>").join("") +
+            "<p>" + esc(w.editedText || w.warningText) + "</p>" +
+            (w.editedText ? '<p class="small muted">Edited by an admin</p>' : "") + "</div>").join("") +
           '<a class="btn btn-secondary" href="queue.html">Go to Review warnings ' + icon("arrow", 16) + "</a>");
   } catch (error) {
     box.innerHTML = '<h2>Drafted warnings</h2><p class="muted" style="margin-top: 8px">' + esc(error.message) + "</p>";
@@ -304,7 +321,7 @@ async function loadEventAudit(id) {
       ? '<p class="muted" style="margin-top: 8px">No status changes yet.</p>'
       : '<div class="timeline" style="margin-top: 16px">' + entries.slice().reverse().map((a) =>
           "<div><i></i><span>" + esc(formatTime(a.changedAt)) + "</span>" +
-          "<strong>" + esc(label(a.oldStatus)) + " → " + esc(label(a.newStatus)) + "</strong>" +
+          "<strong>" + esc(label(a.oldStatus)) + " \u2192 " + esc(label(a.newStatus)) + "</strong>" +
           "<p>By " + esc(a.actorUsername || a.actorId) + "</p></div>").join("") + "</div>");
   } catch (error) {
     box.innerHTML = '<h2>Status history</h2><p class="muted" style="margin-top: 8px">' + esc(error.message) + "</p>";

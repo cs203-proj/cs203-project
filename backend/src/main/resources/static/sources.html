@@ -20,6 +20,7 @@
           <div class="eyebrow">Ingestion</div>
           <h1>Data sources</h1>
         </div>
+        <div class="actions"><button type="button" class="icon-btn refresh-btn" id="refresh"></button></div>
       </header>
 
       <div class="page">
@@ -82,7 +83,6 @@
                 <th>Feed URL <span id="hosts-help-table"></span></th>
                 <th>Status</th>
                 <th>Ingestion</th>
-                <th class="col-last-data" hidden>Last data</th>
                 <th>Backfill</th>
               </tr>
             </thead>
@@ -103,7 +103,7 @@
         </div>
         <button type="button" id="backfill-close" aria-label="Close"></button>
       </div>
-      <p class="muted small" style="margin-bottom: 16px">Loads past readings for every region, using Singapore dates (both ends included), up to 31 days per run. </p>
+      <p class="muted small" style="margin-bottom: 16px">Loads past readings for every region, using Singapore dates (both ends included). </p>
       <label class="field">Date range
         <span class="date-input"><input type="text" class="input" id="backfill-range" placeholder="Pick the first and last day" readonly></span>
       </label>

@@ -1,4 +1,5 @@
-/* Sign-in page: POST /auth/login, keep the token for this browser session, go to the review warnings. */
+/* Sign-in page: POST /auth/login, keep the token for this browser session, then go to the right home page
+ * (admins: review warnings; everyone else: their own warnings). */
 
 const passwordInput = document.getElementById("password");
 const toggleButton = document.getElementById("toggle-password");
@@ -8,8 +9,12 @@ document.getElementById("login-mark").innerHTML = icon("pulse", 22);
 toggleButton.innerHTML = icon("eye");
 submitButton.innerHTML = "Sign in " + icon("arrow", 17);
 
-if (new URLSearchParams(window.location.search).get("expired") === "1") {
+const params = new URLSearchParams(window.location.search);
+if (params.get("expired") === "1") {
   showMessage("Your session expired. Please sign in again.", "info");
+}
+if (params.get("deleted") === "1") {
+  showMessage("Your account has been deleted and your personal details removed.", "info");
 }
 
 /* Eye button: switch the password between hidden (dots) and visible text. */
@@ -31,18 +36,10 @@ document.getElementById("login-form").addEventListener("submit", async (event) =
         body: { username: document.getElementById("username").value.trim(), password: passwordInput.value },
       });
       saveToken(result.token);
-
-      // Only admins can use this console. The server compares roles case-insensitively, so do the same.
-      const payload = tokenPayload();
-      if (!payload || String(payload.role).toUpperCase() !== "ADMIN") {
-        clearToken();
-        showMessage("This console is for admins only.");
-        return;
-      }
-      window.location.href = "queue.html";
+      window.location.href = homePage();
     } catch (error) {
       // The backend gives the same answer for a wrong username and a wrong password (by design).
-      showMessage(error.status === 401 ? "Invalid username or password." : error.message);
+      showMessage(error.status === HTTP.UNAUTHORIZED ? "Invalid username or password." : error.message);
     }
   });
 });
