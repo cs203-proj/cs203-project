@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.cs203.healthwatch.confidence.ConfidenceInputs;
 import com.cs203.healthwatch.confidence.ConfidenceLevel;
 import com.cs203.healthwatch.confidence.ConfidenceResult;
+import com.cs203.healthwatch.detection.SpatialScope;
 import com.cs203.healthwatch.dto.WarningAiSummary;
 import com.cs203.healthwatch.dto.WarningAiSummary.AiStatus;
 import com.cs203.healthwatch.dto.WarningResponse;
@@ -64,6 +65,10 @@ class WarningQueueAiTest {
     }
 
     private void explanation(UUID eventId, ExplanationStatus status) {
+        em.persistAndFlush(explanationRow(eventId, status));
+    }
+
+    private EventExplanation explanationRow(UUID eventId, ExplanationStatus status) {
         EventExplanation x = new EventExplanation();
         x.setEventId(eventId);
         x.setStatus(status);
@@ -77,7 +82,7 @@ class WarningQueueAiTest {
         } else {
             x.setError("Groq returned 500");
         }
-        em.persistAndFlush(x);
+        return x;
     }
 
     /** Persists a warning and pins created_at, which @CreationTimestamp would otherwise set to "now". */
@@ -109,6 +114,60 @@ class WarningQueueAiTest {
         assertThat(ai.likelyCause()).isEqualTo("Regional haze");
         assertThat(ai.confidenceScore()).isEqualTo(0.7425);
         assertThat(ai.confidenceLevel()).isEqualTo(ConfidenceLevel.HIGH);
+    }
+
+    @Test
+    void okExplanationWithScope_returnsScopeListsAndSummary() {
+        UUID event = eventWithConfidence(0.7, ConfidenceLevel.HIGH);
+        EventExplanation x = explanationRow(event, ExplanationStatus.OK);
+        x.setScope(SpatialScope.MULTI_REGION);
+        x.setRegionsAbove(List.of("central", "north"));
+        x.setRegionsCompared(List.of("central", "north", "south"));
+        x.setScopeSummary("Two of three reporting regions are above.");
+        em.persistAndFlush(x);
+        Warning w = warning(event, WarningSeverity.HIGH, "2026-10-14T02:00:00Z");
+
+        WarningAiSummary ai = aiOf(w.getId());
+
+        assertThat(ai.scope()).isEqualTo(SpatialScope.MULTI_REGION);
+        assertThat(ai.regionsAbove()).containsExactly("central", "north");
+        assertThat(ai.regionsCompared()).containsExactly("central", "north", "south");
+        assertThat(ai.scopeSummary()).isEqualTo("Two of three reporting regions are above.");
+    }
+
+    @Test
+    void failedExplanation_keepsTheScopeTheCodeComputed_butNoSummary() {
+        UUID event = eventWithConfidence(0.5, ConfidenceLevel.MEDIUM);
+        EventExplanation x = explanationRow(event, ExplanationStatus.FAILED);
+        x.setScope(SpatialScope.LOCAL);
+        x.setRegionsAbove(List.of("central"));
+        x.setRegionsCompared(List.of("central", "east", "north"));
+        em.persistAndFlush(x);
+        Warning w = warning(event, WarningSeverity.HIGH, "2026-10-14T02:00:00Z");
+
+        WarningAiSummary ai = aiOf(w.getId());
+
+        assertThat(ai.status()).isEqualTo(AiStatus.UNAVAILABLE);
+        assertThat(ai.scope()).isEqualTo(SpatialScope.LOCAL);
+        assertThat(ai.regionsAbove()).containsExactly("central");
+        assertThat(ai.scopeSummary()).isNull();
+    }
+
+    @Test
+    void legacyRowWithNullScope_andMissingRow_readAsUnknownWithEmptyLists() {
+        UUID legacy = eventWithConfidence(0.7, ConfidenceLevel.HIGH);
+        explanation(legacy, ExplanationStatus.OK); // scope columns are null, as before V16
+        Warning w1 = warning(legacy, WarningSeverity.HIGH, "2026-10-14T02:00:00Z");
+        UUID noRow = eventWithConfidence(0.3, ConfidenceLevel.LOW);
+        Warning w2 = warning(noRow, WarningSeverity.HIGH, "2026-10-14T03:00:00Z");
+
+        for (Warning w : List.of(w1, w2)) {
+            WarningAiSummary ai = aiOf(w.getId());
+            assertThat(ai.scope()).isEqualTo(SpatialScope.UNKNOWN);
+            assertThat(ai.regionsAbove()).isEmpty();
+            assertThat(ai.regionsCompared()).isEmpty();
+        }
+        assertThat(aiOf(w1.getId()).scopeSummary()).isNull();
     }
 
     @Test

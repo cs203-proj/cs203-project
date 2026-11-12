@@ -83,7 +83,11 @@ public class WarningController {
                                     "assessment": "GENUINE_TREND",
                                     "likelyCause": "Consistent with regional haze: a gradual, sustained rise across consecutive readings.",
                                     "confidenceScore": 0.7425,
-                                    "confidenceLevel": "HIGH"
+                                    "confidenceLevel": "HIGH",
+                                    "scope": "MULTI_REGION",
+                                    "regionsAbove": ["central", "north"],
+                                    "regionsCompared": ["central", "north", "south"],
+                                    "scopeSummary": "Central and north are above normal, but south is not. Only 3 of 5 regions are reporting."
                                   }
                                 },
                                 {
@@ -99,7 +103,11 @@ public class WarningController {
                                     "assessment": null,
                                     "likelyCause": null,
                                     "confidenceScore": 0.31,
-                                    "confidenceLevel": "LOW"
+                                    "confidenceLevel": "LOW",
+                                    "scope": "UNKNOWN",
+                                    "regionsAbove": [],
+                                    "regionsCompared": [],
+                                    "scopeSummary": null
                                   }
                                 }
                               ],
