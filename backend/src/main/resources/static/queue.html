@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HealthWatch | Review warnings</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Warning operations</div>
+          <h1>Review warnings</h1>
+        </div>
+        <div class="actions"><button type="button" class="icon-btn refresh-btn" id="refresh"></button></div>
+      </header>
+
+      <div class="page">
+        <div class="intro-row">
+          <div>
+            <h2>AI-drafted warnings</h2>
+            <p>Review before sending out to the public.</p>
+          </div>
+        </div>
+
+        <div id="message" class="message" hidden></div>
+
+        <div class="tabs" id="status-tabs">
+          <button type="button" data-status="PENDING_REVIEW" class="active">Pending review <span></span></button>
+          <button type="button" data-status="APPROVED">Approved <span></span></button>
+          <button type="button" data-status="SUPPRESSED">Suppressed <span></span></button>
+          <button type="button" data-status="">All <span></span></button>
+        </div>
+
+        <div class="queue-list" id="warnings"></div>
+
+        <div class="card-actions" id="pager" hidden style="border: 0; margin-top: 8px">
+          <button type="button" class="btn btn-secondary" id="prev">Previous</button>
+          <button type="button" class="btn btn-secondary" id="next">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- History pop-up (warning audit trail), filled in by queue.js -->
+  <div class="modal-backdrop" id="audit-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="audit-title">
+      <div class="modal-head">
+        <div><div class="eyebrow" id="audit-eyebrow"></div><h2 id="audit-title">History</h2></div>
+        <button type="button" id="audit-close" aria-label="Close"></button>
+      </div>
+      <div id="audit-body"></div>
+    </div>
+  </div>
+
+  <!-- Review pop-up (edit / downgrade / suppress, CG-28), filled in by queue.js -->
+  <div class="modal-backdrop" id="review-modal" hidden>
+    <form class="modal modal-review" id="review-form" role="dialog" aria-modal="true" aria-labelledby="review-title" novalidate>
+      <div class="modal-head">
+        <div><div class="eyebrow" id="review-eyebrow"></div><h2 id="review-title"></h2></div>
+        <button type="button" id="review-close" aria-label="Close"></button>
+      </div>
+      <p class="muted small" id="review-intro"></p>
+      <div class="original-text">
+        <span class="label-sm">Original draft (never changed)</span>
+        <p id="review-original"></p>
+      </div>
+      <label class="field" id="severity-field" hidden>New severity
+        <select id="review-severity"></select>
+      </label>
+      <label class="field" id="text-field" hidden>Wording end users will see
+        <textarea class="input textarea" id="review-text" rows="5"></textarea>
+      </label>
+      <label class="field" id="reason-field" hidden>Reason <span class="hint">Kept in the warning's history.</span>
+        <textarea class="input textarea" id="review-reason" rows="3"></textarea>
+      </label>
+      <div class="form-error" id="review-error" hidden></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" id="review-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="review-submit"></button>
+      </div>
+    </form>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/queue.js"></script>
+</body>
+</html>

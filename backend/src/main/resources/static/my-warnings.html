@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HealthWatch | My warnings</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Your health alerts</div>
+          <h1>My warnings</h1>
+        </div>
+        <div class="actions"><button type="button" class="icon-btn refresh-btn" id="refresh"></button></div>
+      </header>
+
+      <div class="page page-narrow">
+        <!-- Who the warnings are for, from GET /me/profile -->
+        <div class="profile-strip" id="profile-strip" hidden></div>
+
+        <div id="message" class="message" hidden></div>
+
+        <div class="queue-list" id="my-warnings"></div>
+
+        <p class="small muted feed-note">
+          Shows recently approved warnings for your region and group.
+          Every warning is checked by a person before it reaches you.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/my-warnings.js"></script>
+</body>
+</html>

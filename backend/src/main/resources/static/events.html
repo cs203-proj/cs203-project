@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HealthWatch | Events</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <div class="main-shell">
+      <!-- List view (events.html) -->
+      <div id="list-view" hidden>
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">Signal detection</div>
+            <h1>Events</h1>
+          </div>
+          <div class="actions"><button type="button" class="icon-btn refresh-btn" id="refresh"></button></div>
+        </header>
+        <div class="page">
+          <div class="intro-row">
+            <div>
+              <h2>Flagged events</h2>
+              <p>Readings that stayed well above their baseline.</p>
+            </div>
+          </div>
+
+          <div id="message" class="message" hidden></div>
+
+          <div class="table-card">
+            <div class="table-tools">
+              <div class="tabs" id="status-tabs">
+                <button type="button" data-status="" class="active">All <span></span></button>
+                <button type="button" data-status="NEW">New <span></span></button>
+                <button type="button" data-status="UNDER_REVIEW">Under review <span></span></button>
+                <button type="button" data-status="CONFIRMED">Confirmed <span></span></button>
+                <button type="button" data-status="DISMISSED">Dismissed <span></span></button>
+              </div>
+              <select class="select select-plain" id="region-filter" aria-label="Filter by region">
+                <option value="">All regions</option>
+              </select>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Detected</th>
+                  <th>Region</th>
+                  <th>Signal</th>
+                  <th>Deviation</th>
+                  <th>Confidence</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="event-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail view (events.html?id=...), filled in by events.js -->
+      <div id="detail-view" hidden></div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/events.js"></script>
+</body>
+</html>

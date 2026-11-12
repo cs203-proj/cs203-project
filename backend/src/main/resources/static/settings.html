@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HealthWatch | Settings</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Your account</div>
+          <h1>Settings</h1>
+        </div>
+      </header>
+
+      <div class="page page-narrow">
+        <div id="message" class="message" hidden></div>
+
+        <!-- PUT /me/profile (full replace: region, audience, health conditions) -->
+        <form class="panel settings-form" id="profile-form" novalidate>
+          <div class="panel-title">
+            <div>
+              <h2>Your profile</h2>
+              <p>Used to pick which warnings you get and how the advice is worded.</p>
+            </div>
+          </div>
+
+          <fieldset class="settings-section">
+            <legend>Where are you?</legend>
+            <label class="field">Region
+              <select id="region">
+                <option value="">Choose your region</option>
+              </select>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-section">
+            <legend>Who should the advice be for?</legend>
+            <div class="choice-list" id="audience"></div>
+          </fieldset>
+
+          <!-- Only shown for vulnerable groups: that is the only place the backend uses them (CG-23 "why this applies") -->
+          <fieldset class="settings-section" id="conditions-section" hidden>
+            <legend>Health conditions <span class="hint">Optional. Used to explain why a warning applies to you; never shared.</span></legend>
+            <div class="check-grid" id="conditions"></div>
+          </fieldset>
+
+          <div class="form-error" id="profile-error" hidden></div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="save-profile">Save changes</button>
+          </div>
+        </form>
+
+        <!-- DELETE /me (not offered to admins: the backend refuses with 403) -->
+        <section class="panel danger-zone" id="danger-zone" hidden>
+          <div>
+            <h2>Delete account</h2>
+            <p>Removes your username, password, region, group and health conditions. You will be signed out and can't
+              undo this.</p>
+          </div>
+          <button type="button" class="btn btn-danger" id="delete-account"></button>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/settings.js"></script>
+</body>
+</html>
