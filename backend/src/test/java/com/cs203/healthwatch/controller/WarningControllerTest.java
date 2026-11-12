@@ -78,7 +78,7 @@ class WarningControllerTest {
     private static WarningResponse warning(WarningSeverity severity) {
         return new WarningResponse(UUID.randomUUID(), UUID.randomUUID(), "GENERAL_PUBLIC", severity,
                 WarningStatus.PENDING_REVIEW, "PM2.5 is elevated.", null, null,
-                Instant.parse("2026-10-14T02:10:00Z"));
+                Instant.parse("2026-10-14T02:10:00Z"), null);
     }
 
     @Test
@@ -164,7 +164,7 @@ class WarningControllerTest {
         when(warningReviewService.edit(any(), any(), any())).thenReturn(new WarningResponse(
                 id, UUID.randomUUID(), "GENERAL_PUBLIC", WarningSeverity.HIGH, WarningStatus.PENDING_REVIEW,
                 "PM2.5 is elevated.", "Air quality is poor. Stay indoors.", null,
-                Instant.parse("2026-10-14T02:10:00Z")));
+                Instant.parse("2026-10-14T02:10:00Z"), null));
 
         mockMvc.perform(post("/warnings/{id}/edit", id)
                         .contentType(MediaType.APPLICATION_JSON)

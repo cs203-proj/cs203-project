@@ -25,12 +25,22 @@ public record WarningResponse(
                 + "labelled as AI-generated",
                 example = "Fine particles at these levels can worsen breathing for people with asthma or heart "
                         + "disease, and the rise may be consistent with regional haze.")
-        String aiLine,
-        @Schema(description = "When the draft was generated", example = "2026-10-14T02:10:00Z") Instant createdAt
+        String aiLine, // read by END USERS (GET /me/warnings); per-audience text
+        @Schema(description = "When the draft was generated", example = "2026-10-14T02:10:00Z") Instant createdAt,
+        @Schema(description = "AI summary of the event (CG-163), for ADMIN triage in the review queue. Filled only by "
+                + "GET /warnings; approve, edit, downgrade, suppress and GET /events/{id}/warnings return null.",
+                nullable = true)
+        WarningAiSummary ai // read by ADMINS; event-level verdict, not per audience
 ) {
     public static WarningResponse from(Warning warning) {
         return new WarningResponse(warning.getId(), warning.getEventId(), warning.getAudience(),
                 warning.getSeverity(), warning.getStatus(), warning.getWarningText(), warning.getEditedText(),
-                warning.getAiLine(), warning.getCreatedAt());
+                warning.getAiLine(), warning.getCreatedAt(), null);
+    }
+
+    /** The same warning with its AI summary attached (the review queue fills it; other endpoints leave it null). */
+    public WarningResponse withAi(WarningAiSummary summary) {
+        return new WarningResponse(id, eventId, audience, severity, status, warningText, editedText, aiLine,
+                createdAt, summary);
     }
 }

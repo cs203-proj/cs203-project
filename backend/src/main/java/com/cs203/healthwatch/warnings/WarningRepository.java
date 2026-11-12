@@ -23,6 +23,23 @@ public interface WarningRepository extends JpaRepository<Warning, UUID> {
             + " when com.cs203.healthwatch.warnings.WarningSeverity.LOW then 3"
             + " else -1 end, w.createdAt asc, w.id asc";
 
+    // CG-165: the same queue with the event's AI explanation and confidence attached, in ONE query. Warning only
+    // stores event_id (no @ManyToOne), so these are entity joins ("left join X on ..."). LEFT, so a warning whose
+    // event has no explanation or no confidence is still listed. event_explanations.event_id and events.id are both
+    // unique, so each warning matches at most one row and the paging and the count are unchanged.
+    String QUEUE_ROWS = "select new com.cs203.healthwatch.warnings.WarningQueueRow("
+            + "w, x.status, x.assessment, x.likelyCause, e.confidenceScore, e.confidenceLevel)"
+            + " from Warning w"
+            + " left join com.cs203.healthwatch.events.DetectedEvent e on e.id = w.eventId"
+            + " left join com.cs203.healthwatch.explanation.EventExplanation x on x.eventId = w.eventId";
+
+    @Query(value = QUEUE_ROWS + QUEUE_ORDER, countQuery = "select count(w) from Warning w")
+    Page<WarningQueueRow> findQueueRows(Pageable page);
+
+    @Query(value = QUEUE_ROWS + " where w.status = :status" + QUEUE_ORDER,
+            countQuery = "select count(w) from Warning w where w.status = :status")
+    Page<WarningQueueRow> findQueueRows(WarningStatus status, Pageable page);
+
     @Query(value = "select w from Warning w" + QUEUE_ORDER,
             countQuery = "select count(w) from Warning w")
     Page<Warning> findQueue(Pageable page);

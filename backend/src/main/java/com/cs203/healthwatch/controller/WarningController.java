@@ -77,7 +77,14 @@ public class WarningController {
                                   "severity": "HIGH",
                                   "status": "PENDING_REVIEW",
                                   "warningText": "PM2.5 in the central region has stayed well above normal for 3 hours. Confidence: medium. Limit prolonged outdoor activity.",
-                                  "createdAt": "2026-10-14T02:10:00Z"
+                                  "createdAt": "2026-10-14T02:10:00Z",
+                                  "ai": {
+                                    "status": "OK",
+                                    "assessment": "GENUINE_TREND",
+                                    "likelyCause": "Consistent with regional haze: a gradual, sustained rise across consecutive readings.",
+                                    "confidenceScore": 0.7425,
+                                    "confidenceLevel": "HIGH"
+                                  }
                                 },
                                 {
                                   "id": "1b4e28ba-2fa1-41d2-883f-0016d3cca427",
@@ -86,7 +93,14 @@ public class WarningController {
                                   "severity": "MEDIUM",
                                   "status": "PENDING_REVIEW",
                                   "warningText": "PM2.5 in the central region is elevated. Confidence: low. Sensitive groups should reduce outdoor exertion.",
-                                  "createdAt": "2026-10-14T01:05:00Z"
+                                  "createdAt": "2026-10-14T01:05:00Z",
+                                  "ai": {
+                                    "status": "UNAVAILABLE",
+                                    "assessment": null,
+                                    "likelyCause": null,
+                                    "confidenceScore": 0.31,
+                                    "confidenceLevel": "LOW"
+                                  }
                                 }
                               ],
                               "total": 2,
