@@ -34,23 +34,27 @@ class WarningDraftAuditTest {
     @Autowired JdbcTemplate jdbc;
 
     @Test
-    void confirmingAnEventCreatesOneDraftWithOneSystemAuditEntry() {
+    void confirmingAnEventCreatesThreeDraftsEachWithOneSystemAuditEntry() {
         User admin = userRepository.save(new User("draft-admin-" + UUID.randomUUID(), "hash", "admin"));
         DetectedEvent event = eventRepository.save(
                 TestEvents.event(4.2, EventStatus.UNDER_REVIEW, "2026-09-24T03:00:00Z"));
 
         eventService.changeStatus(event.getId(), "CONFIRMED", admin.getId());
 
-        UUID warningId = jdbc.queryForObject(
+        List<UUID> warningIds = jdbc.queryForList(
                 "select id from warnings where event_id = ?", UUID.class, event.getId());
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "select actor, action, before is null as before_null, after->>'status' as status "
-                        + "from warning_audit_log where warning_id = ?", warningId);
+        assertThat(warningIds).hasSize(3); // general public, vulnerable, healthcare worker (CG-154)
 
-        assertThat(rows).hasSize(1);
-        assertThat(rows.get(0)).containsEntry("actor", "system")
-                .containsEntry("action", "DRAFT_CREATED")
-                .containsEntry("before_null", true)
-                .containsEntry("status", "PENDING_REVIEW");
+        for (UUID warningId : warningIds) {
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                    "select actor, action, before is null as before_null, after->>'status' as status "
+                            + "from warning_audit_log where warning_id = ?", warningId);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.get(0)).containsEntry("actor", "system")
+                    .containsEntry("action", "DRAFT_CREATED")
+                    .containsEntry("before_null", true)
+                    .containsEntry("status", "PENDING_REVIEW");
+        }
     }
 }

@@ -13,7 +13,8 @@ public record MyWarningResponse(
         UUID eventId,
         @Schema(example = "HIGH") WarningSeverity severity,
         @Schema(example = "east") String region,
-        @Schema(example = "VULNERABLE") String audience,
+        @Schema(example = "VULNERABLE", allowableValues = {"GENERAL_PUBLIC", "VULNERABLE", "HEALTHCARE_WORKER"})
+        String audience,
         @Schema(description = "The wording to read: the admin's edit if the warning was edited, otherwise the "
                 + "original draft") String text,
         @Schema(description = "When an admin approved the warning", example = "2026-10-14T02:40:00Z")
@@ -42,7 +43,8 @@ public record MyWarningResponse(
 
     @Schema(description = "A sentence written by the AI, kept apart from the code-generated explanation")
     public record AiLine(
-            @Schema(example = "Because you listed asthma, keep your reliever inhaler with you today.") String text,
+            @Schema(example = "Fine particles at these levels can worsen breathing for people with asthma or heart "
+                    + "disease.") String text,
             @Schema(example = "AI-generated") String label
     ) {
     }

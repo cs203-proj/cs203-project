@@ -131,7 +131,33 @@ robust z-score (detection only fires above 3):
   never invented per event.
 - The confidence line is the event's confidence level (CG-16). Events scored before confidence existed say
   "Confidence: not yet assessed."
-- Per-audience drafts (vulnerable groups, healthcare workers) are Sprint 3.
+
+### Per-audience drafts and the AI line (CG-154)
+
+Confirming an event drafts one warning per audience, all `PENDING_REVIEW`, in the same transaction as the status
+change: `GENERAL_PUBLIC` (the text above, unchanged), `VULNERABLE` and `HEALTHCARE_WORKER`. The audience codes are the
+same as the profile's (CG-6).
+
+- All three share the event's severity and confidence. Each has its own fixed "What you should do" advice, based on the
+  MOH/NEA health advisory. The tables, the source and the severity mapping are in
+  [docs/warning-advice.md](docs/warning-advice.md).
+- Each draft gets its own `DRAFT_CREATED` audit entry and is its own row, so it is reviewed on its own in the queue.
+- At most one draft per event per audience. Events confirmed before CG-154 keep their single general-public draft
+  (`CONFIRMED` is final, so they are never re-drafted).
+
+Each draft can also get an AI-written "why this matters for this audience" line in `warnings.ai_line` (`aiLine` on
+`GET /events/{id}/warnings` and `GET /warnings`, and labelled "AI-generated" on `GET /me/warnings`):
+
+- Built from the event's CG-135 explanation (assessment and likely cause) plus the audience. The AI is never sent the
+  advice and is told never to give any. Strict JSON schema output, validated like CG-135.
+- Uses the same Groq key and model as AI explanations. Turn it off with `AI_LINE_ENABLED=false`; with no key, nothing
+  is attempted.
+- Runs in the background right after the confirm commits, so confirming never waits on or fails because of the AI. If
+  the explanation is missing or `FAILED`, the AI call fails, or the reply is blank or over 400 characters, the draft
+  stays without a line and the reason is logged.
+- Only written while the warning is still `PENDING_REVIEW` and has no line yet, so an admin always sees it before
+  approving. Recorded in the warning's audit trail as `AI_LINE_ADDED` by `system`.
+- One row is shared by everyone in the audience, so no user's profile or health conditions are ever sent to the AI.
 
 ## Profile and account deletion (CG-6, CG-7)
 

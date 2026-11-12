@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 public interface WarningRepository extends JpaRepository<Warning, UUID> {
@@ -57,4 +58,15 @@ public interface WarningRepository extends JpaRepository<Warning, UUID> {
             + " when com.cs203.healthwatch.warnings.WarningSeverity.LOW then 3"
             + " else 4 end, w.approvedAt desc, w.id asc")
     List<Warning> findActiveFor(String region, String audience, Instant since);
+
+    /**
+     * Sets the AI line (CG-154) only if the warning is still pending review and has none yet, so an AI line can never
+     * appear on a warning an admin has already approved or suppressed.
+     *
+     * @return 1 if the line was set, 0 if not
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Warning w set w.aiLine = :line, w.updatedAt = :now where w.id = :id and w.aiLine is null"
+            + " and w.status = com.cs203.healthwatch.warnings.WarningStatus.PENDING_REVIEW")
+    int setAiLineIfPending(UUID id, String line, Instant now);
 }
