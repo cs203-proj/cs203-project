@@ -61,6 +61,10 @@ public class EventExplanation extends BaseEntity {
     @Column(name = "regions_compared")
     private List<String> regionsCompared;
 
+    /** The AI's plain-words account of the scope it was given (CG-172). Null on FAILED and pre-V16 rows. */
+    @Column(name = "scope_summary", length = LONG_TEXT)
+    private String scopeSummary;
+
     public SpatialScope scopeOrUnknown() {
         return scope == null ? SpatialScope.UNKNOWN : scope;
     }

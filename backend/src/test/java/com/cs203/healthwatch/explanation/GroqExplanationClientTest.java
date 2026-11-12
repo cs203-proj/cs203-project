@@ -60,7 +60,8 @@ class GroqExplanationClientTest {
              "likelyCause":"Consistent with regional haze",
              "explanation":"PM2.5 rose steadily over three hours.",
              "evidence":["Last 3 readings 45, 55, 70 vs median 18", "Rise is gradual, not a single jump"],
-             "assumptions":["Station is reporting correctly"]}
+             "assumptions":["Station is reporting correctly"],
+             "scopeSummary":"Only central is above the threshold."}
             """;
 
     @Test
@@ -71,7 +72,7 @@ class GroqExplanationClientTest {
                 .andExpect(jsonPath("$.model").value("groq-test-model"))
                 .andExpect(jsonPath("$.response_format.type").value("json_schema"))
                 .andExpect(jsonPath("$.response_format.json_schema.strict").value(true))
-                .andExpect(jsonPath("$.response_format.json_schema.schema.required.length()").value(5))
+                .andExpect(jsonPath("$.response_format.json_schema.schema.required.length()").value(6))
                 .andExpect(jsonPath("$.response_format.json_schema.schema.additionalProperties").value(false))
                 .andExpect(jsonPath("$.messages[0].role").value("system"))
                 .andExpect(jsonPath("$.messages[1].content").value(
@@ -126,11 +127,25 @@ class GroqExplanationClientTest {
     @Test
     void missingField_isRejected() throws Exception {
         String bad = """
-                {"assessment":"UNCERTAIN","likelyCause":"","explanation":"x","evidence":["a"],"assumptions":["b"]}
+                {"assessment":"UNCERTAIN","likelyCause":"","explanation":"x","evidence":["a"],"assumptions":["b"],"scopeSummary":"s"}
                 """;
         assertThatThrownBy(() -> client.parse(groqResponse(bad)))
                 .isInstanceOf(ExplanationException.class)
                 .hasMessageContaining("likelyCause");
+    }
+
+    @Test
+    void missingScopeSummary_isRejected() throws Exception {
+        String bad = GOOD_ANSWER.replace("\"scopeSummary\":\"Only central is above the threshold.\"", "\"x\":1");
+        assertThatThrownBy(() -> client.parse(groqResponse(bad)))
+                .isInstanceOf(ExplanationException.class)
+                .hasMessageContaining("scopeSummary");
+    }
+
+    @Test
+    void schemaRequiresScopeSummary_andStaysStrict() {
+        assertThat(String.valueOf(GroqExplanationClient.RESPONSE_SCHEMA.get("required"))).contains("scopeSummary");
+        assertThat(GroqExplanationClient.RESPONSE_SCHEMA.get("additionalProperties")).isEqualTo(false);
     }
 
     @Test

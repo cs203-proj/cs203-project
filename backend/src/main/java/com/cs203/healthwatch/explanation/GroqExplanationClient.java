@@ -116,8 +116,10 @@ public class GroqExplanationClient implements ExplanationClient {
                     "likelyCause", STRING,
                     "explanation", STRING,
                     "evidence", STRING_LIST,
-                    "assumptions", STRING_LIST),
-            "required", List.of("assessment", "likelyCause", "explanation", "evidence", "assumptions"),
+                    "assumptions", STRING_LIST,
+                    "scopeSummary", STRING),
+            "required", List.of("assessment", "likelyCause", "explanation", "evidence", "assumptions",
+                    "scopeSummary"),
             "additionalProperties", false);
 
     /** Pulls the JSON answer out of a chat completions response and checks every field is usable. */
@@ -146,7 +148,8 @@ public class GroqExplanationClient implements ExplanationClient {
                     requiredText(answer, "likelyCause"),
                     requiredText(answer, "explanation"),
                     stringList(answer, "evidence"),
-                    stringList(answer, "assumptions"));
+                    stringList(answer, "assumptions"),
+                    requiredText(answer, "scopeSummary"));
         } catch (JsonProcessingException e) {
             throw new ExplanationException("Groq reply was not valid JSON: " + e.getOriginalMessage(), e);
         }

@@ -37,7 +37,7 @@ class EventExplanationScopeTest {
     private static final Instant DETECTED = Instant.parse("2026-10-18T03:00:00Z");
     private static final BaselineSnapshot BASELINE = new BaselineSnapshot("central", "pm25", 18.0, 5.0); // above > 33
     private static final AiExplanation ANSWER = new AiExplanation(Assessment.GENUINE_TREND, "cause", "text",
-            List.of("e"), List.of("a"));
+            List.of("e"), List.of("a"), "scope summary");
     private static final DetectionProperties DETECTION = new DetectionProperties("central", "pm25", "air_quality",
             3.0, 3, Duration.ofMinutes(90), null);
     private static final PmSourceProperties PM = new PmSourceProperties("n", "u", "air_quality",
@@ -101,6 +101,7 @@ class EventExplanationScopeTest {
         assertThat(row.getScope()).isEqualTo(SpatialScope.LOCAL);
         assertThat(row.getRegionsAbove()).containsExactly("central");
         assertThat(row.getRegionsCompared()).containsExactly("central", "east", "north", "south", "west");
+        assertThat(row.getScopeSummary()).isEqualTo("scope summary");
     }
 
     @Test

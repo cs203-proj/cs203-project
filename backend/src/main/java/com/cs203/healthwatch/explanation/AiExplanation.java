@@ -8,5 +8,6 @@ public record AiExplanation(
         String likelyCause,
         String explanation,
         List<String> evidence,
-        List<String> assumptions
+        List<String> assumptions,
+        String scopeSummary
 ) {}

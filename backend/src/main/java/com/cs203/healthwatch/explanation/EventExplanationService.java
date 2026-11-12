@@ -191,6 +191,7 @@ public class EventExplanationService {
             row.setExplanation(ai.explanation());
             row.setEvidence(ai.evidence());
             row.setAssumptions(ai.assumptions());
+            row.setScopeSummary(ai.scopeSummary());
             row.setError(null);
         } catch (Exception e) {
             log.error("AI explanation failed for event {} ({}/{}), attempt {}; event stays NEW: {}",

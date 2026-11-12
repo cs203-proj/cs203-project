@@ -7,7 +7,8 @@
 alter table event_explanations
     add column scope varchar(20),
     add column regions_above jsonb,
-    add column regions_compared jsonb;
+    add column regions_compared jsonb,
+    add column scope_summary text;           -- the AI's plain-words account of the scope (CG-172)
 
 alter table event_explanations
     add constraint chk_event_explanations_scope
