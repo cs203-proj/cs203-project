@@ -2,6 +2,7 @@ package com.cs203.healthwatch.detection;
 
 import java.time.Duration;
 import java.util.List;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "app.detection")
@@ -14,6 +15,7 @@ public record DetectionProperties(
         Duration maxGap,
         Replay replay
 ) {
+    @ConstructorBinding
     public DetectionProperties {
         regions = regions == null ? List.of() : regions.stream()
                 .filter(region -> region != null && !region.isBlank())
