@@ -45,11 +45,25 @@ public class DetectionOrchestrator {
      * the baseline computed in baseline_dev (Demo 1; see BaselineDevRepository). Events are labelled with the
      * signal (pm25), not the feed's source type.
      *
-     * @return the event created, or empty if none was created
+     * @return the first event created, or empty if no configured region raised an event
      */
     public Optional<DetectedEvent> runLiveDetection() {
-        String region = config.region();
         String signalType = config.signalType();
+        Optional<DetectedEvent> firstCreated = Optional.empty();
+        for (String region : config.regions()) {
+            try {
+                Optional<DetectedEvent> created = runLiveDetection(region, signalType);
+                if (firstCreated.isEmpty() && created.isPresent()) {
+                    firstCreated = created;
+                }
+            } catch (Exception e) {
+                log.error("Live detection failed for region {}: {}", region, e.getMessage(), e);
+            }
+        }
+        return firstCreated;
+    }
+
+    private Optional<DetectedEvent> runLiveDetection(String region, String signalType) {
 
         Optional<BaselineSnapshot> baseline = usableBaseline(region, signalType);
         if (baseline.isEmpty()) {
