@@ -11,12 +11,16 @@ import com.cs203.healthwatch.ingestion.config.IngestionHttpProperties;
 import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
+import com.cs203.healthwatch.ingestion.sources.DataSource;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.mockito.ArgumentCaptor;
@@ -45,11 +49,14 @@ class PmLiveFetchTest {
         ReadingRepository repo = mock(ReadingRepository.class);
         DataSourceRegistry registry = mock(DataSourceRegistry.class);
         when(registry.resolve("datagovsg_pm25", "air_quality")).thenReturn(SOURCE_ID);
+        DataSource sourceRow = new DataSource("datagovsg_pm25", "air_quality");   // enabled, no url: uses URL
+        sourceRow.setId(SOURCE_ID);
+        when(registry.current("datagovsg_pm25", "air_quality")).thenReturn(sourceRow);
 
         PmSourceProperties props = new PmSourceProperties("datagovsg_pm25", URL, "air_quality",
                 REGIONS.stream().map(Region::new).toList());
         PmIngestionService service = new PmIngestionService(
-                fetchClient, new PmParser(), repo, new ObjectMapper(), props, registry);
+                fetchClient, new PmParser(), repo, new ObjectMapper(), props, registry, Clock.systemUTC());
 
         service.ingestLatest();
 

@@ -4,6 +4,7 @@ import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
@@ -111,8 +112,8 @@ class PmParserTest {
     @Test
     void missingRegionKeyIsMalformed() {
         // Payload has readings for other regions but not the one we're ingesting.
-        // PmParser validates the value before populating any fields, so a malformed
-        // row carries only sourceId, region and rawPayload (observedAt stays null).
+        // The value is missing but the timestamp is valid, so the malformed row keeps observedAt:
+        // that lets the (source_id, region, observed_at) unique constraint dedupe it on a rerun.
         JsonNode item = json("""
             {
               "timestamp": "2024-01-01T08:00:00+08:00",
@@ -124,8 +125,28 @@ class PmParserTest {
 
         assertThat(r.isMalformed()).isTrue();
         assertThat(r.getValue()).isNull();
-        assertThat(r.getObservedAt()).isNull();
+        assertThat(r.getObservedAt()).isEqualTo(OffsetDateTime.parse("2024-01-01T08:00:00+08:00"));
         assertThat(r.getRawPayload()).isEqualTo(item.toString());
+    }
+
+    @Test
+    @DisplayName("A value out of range is flagged malformed but keeps its timestamp, so a rerun is a duplicate")
+    void parse_ShouldKeepTimestamp_WhenValueIsOutOfRange() {
+        // Arrange: valid timestamp, value just above the allowed range
+        JsonNode item = json("""
+            {
+              "timestamp": "2024-01-01T08:00:00+08:00",
+              "readings": { "pm25_one_hourly": { "central": 1000.1 } }
+            }
+            """);
+
+        // Act
+        Reading r = parser.parse(item, REGION, SOURCE_ID);
+
+        // Assert
+        assertThat(r.isMalformed()).isTrue();
+        assertThat(r.getValue()).isNull();
+        assertThat(r.getObservedAt()).isEqualTo(OffsetDateTime.parse("2024-01-01T08:00:00+08:00"));
     }
 
     @Test

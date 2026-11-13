@@ -32,7 +32,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-/** CG-21: confirming an event over HTTP drafts exactly one general-public warning, pending review. */
+/**
+ * CG-21 / CG-154: confirming an event over HTTP drafts one warning per audience (general public, vulnerable groups,
+ * healthcare workers), all pending review.
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -54,8 +57,8 @@ class WarningDraftIntegrationTest {
         jdbc.update("delete from audit_log");
         jdbc.update("delete from events");
         jdbc.update("delete from users");
-        userRepository.save(new User("admin", "hash", "admin"));
-        adminToken = jwtService.generateToken("admin", "admin");
+        User admin = userRepository.save(new User("admin", "hash", "admin"));
+        adminToken = jwtService.generateToken(admin.getId(), "admin", "admin");
     }
 
     private DetectedEvent event(double deviation, EventStatus status) {
@@ -73,18 +76,36 @@ class WarningDraftIntegrationTest {
         return warningRepository.findByEventIdOrderByCreatedAtAscIdAsc(eventId);
     }
 
+    private Warning generalPublicWarningFor(UUID eventId) {
+        return warningsFor(eventId).stream()
+                .filter(w -> w.getAudience().equals("GENERAL_PUBLIC"))
+                .findFirst().orElseThrow();
+    }
+
     @Test
-    void confirmingAnEventDraftsOnePendingGeneralPublicWarning() throws Exception {
+    void confirmingAnEventDraftsOnePendingWarningPerAudience() throws Exception {
         DetectedEvent event = event(9.4, EventStatus.UNDER_REVIEW);
 
         changeStatus(event.getId(), "CONFIRMED").andExpect(status().isOk());
 
-        assertThat(warningsFor(event.getId())).singleElement().satisfies(w -> {
-            assertThat(w.getAudience()).isEqualTo("GENERAL_PUBLIC");
+        List<Warning> warnings = warningsFor(event.getId());
+        assertThat(warnings).extracting(Warning::getAudience)
+                .containsExactlyInAnyOrder("GENERAL_PUBLIC", "VULNERABLE", "HEALTHCARE_WORKER");
+        assertThat(warnings).allSatisfy(w -> {
             assertThat(w.getSeverity()).isEqualTo(WarningSeverity.HIGH);
             assertThat(w.getStatus()).isEqualTo(WarningStatus.PENDING_REVIEW);
             assertThat(w.getWarningText()).contains("What happened:", "Confidence:", "What you should do:");
+            assertThat(w.getAiLine()).isNull(); // no Groq key in tests, so no AI line
         });
+    }
+
+    @Test
+    void eachAudienceGetsItsOwnAdvice() throws Exception {
+        DetectedEvent event = event(9.4, EventStatus.UNDER_REVIEW);
+
+        changeStatus(event.getId(), "CONFIRMED").andExpect(status().isOk());
+
+        assertThat(warningsFor(event.getId())).extracting(Warning::getWarningText).doesNotHaveDuplicates();
     }
 
     @Test
@@ -95,15 +116,15 @@ class WarningDraftIntegrationTest {
 
         changeStatus(event.getId(), "CONFIRMED").andExpect(status().isOk());
 
-        assertThat(warningsFor(event.getId())).singleElement()
-                .satisfies(w -> assertThat(w.getWarningText()).contains("Confidence: medium."));
+        assertThat(warningsFor(event.getId())).hasSize(3)
+                .allSatisfy(w -> assertThat(w.getWarningText()).contains("Confidence: medium."));
     }
 
     @Test
     void draftIsRecordedInTheWarningAuditTrailBySystem() throws Exception {
         DetectedEvent event = event(9.4, EventStatus.UNDER_REVIEW);
         changeStatus(event.getId(), "CONFIRMED").andExpect(status().isOk());
-        Warning warning = warningsFor(event.getId()).get(0);
+        Warning warning = generalPublicWarningFor(event.getId());
 
         mockMvc.perform(get("/warnings/{id}/audit", warning.getId()).header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
@@ -141,7 +162,7 @@ class WarningDraftIntegrationTest {
     void originalDraftTextCannotBeOverwritten() throws Exception {
         DetectedEvent event = event(9.4, EventStatus.UNDER_REVIEW);
         changeStatus(event.getId(), "CONFIRMED").andExpect(status().isOk());
-        Warning warning = warningsFor(event.getId()).get(0);
+        Warning warning = generalPublicWarningFor(event.getId());
         String original = warning.getWarningText();
 
         warning.setWarningText("Edited by someone");
@@ -162,12 +183,17 @@ class WarningDraftIntegrationTest {
 
         mockMvc.perform(get("/events/{id}/warnings", event.getId()).header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].eventId").value(event.getId().toString()))
-                .andExpect(jsonPath("$[0].audience").value("GENERAL_PUBLIC"))
-                .andExpect(jsonPath("$[0].severity").value("MEDIUM"))
-                .andExpect(jsonPath("$[0].status").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$", hasSize(3)))
+                .andExpect(jsonPath("$[*].audience").value(org.hamcrest.Matchers.containsInAnyOrder(
+                        "GENERAL_PUBLIC", "VULNERABLE", "HEALTHCARE_WORKER")))
+                .andExpect(jsonPath("$[*].eventId").value(org.hamcrest.Matchers.everyItem(
+                        org.hamcrest.Matchers.is(event.getId().toString()))))
+                .andExpect(jsonPath("$[*].severity").value(org.hamcrest.Matchers.everyItem(
+                        org.hamcrest.Matchers.is("MEDIUM"))))
+                .andExpect(jsonPath("$[*].status").value(org.hamcrest.Matchers.everyItem(
+                        org.hamcrest.Matchers.is("PENDING_REVIEW"))))
                 .andExpect(jsonPath("$[0].warningText").isNotEmpty())
+                .andExpect(jsonPath("$[0].aiLine").doesNotExist())
                 .andExpect(jsonPath("$[0].createdAt").exists());
 
         mockMvc.perform(get("/events/{id}/warnings", UUID.randomUUID())
@@ -177,12 +203,12 @@ class WarningDraftIntegrationTest {
 
     @Test
     void getWarningsNeedsAnAdminToken() throws Exception {
-        userRepository.save(new User("viewer", "hash", "viewer"));
+        User viewer = userRepository.save(new User("viewer", "hash", "viewer"));
         DetectedEvent event = event(5.5, EventStatus.CONFIRMED);
 
         mockMvc.perform(get("/events/{id}/warnings", event.getId())).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/events/{id}/warnings", event.getId())
-                        .header("Authorization", "Bearer " + jwtService.generateToken("viewer", "viewer")))
+                        .header("Authorization", "Bearer " + jwtService.generateToken(viewer.getId(), "viewer", "viewer")))
                 .andExpect(status().isForbidden());
     }
 }

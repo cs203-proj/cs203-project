@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- HealthWatch mark: pulse line on the periwinkle square (same as the sidebar logo) -->
+  <rect width="64" height="64" rx="16" fill="#839ed2"/>
+  <path d="M12 32h10l5.5-17.5 10.5 35 5.5-17.5H52" fill="none" stroke="#f4f1f0" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

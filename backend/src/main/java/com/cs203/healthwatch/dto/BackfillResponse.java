@@ -14,7 +14,7 @@ public record BackfillResponse(
         @Schema(description = "Of the saved rows, how many are flagged malformed", example = "4") int malformed,
         @Schema(description = "Rows already stored, skipped", example = "0") int duplicates,
         @Schema(description = "Rows that failed to save for another reason", example = "0") int failed,
-        @Schema(description = "Days that could not be fetched completely; rerun the backfill for these")
+        @Schema(description = "Days that could not be fetched or stored completely; rerun the backfill for these")
         List<LocalDate> failedDays
 ) {
 }

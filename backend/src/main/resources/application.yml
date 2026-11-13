@@ -27,6 +27,12 @@ server:
   port: ${PORT:8080}
 
 app:
+  warnings:
+    feed:
+      active-window: ${WARNING_ACTIVE_WINDOW:24h} # how long after approval a warning stays on GET /me/warnings (CG-22)
+    ai-line: # CG-154: AI "why this matters" line on each audience's draft; uses the app.explanation Groq key and model
+      enabled: ${AI_LINE_ENABLED:true}
+      max-length: 400 # longer replies are dropped
   jwt:
     secret: ${JWT_SECRET:change-this-dev-secret-change-this-dev-secret}
     access-token-ttl-minutes: ${JWT_ACCESS_TTL_MIN:30}
@@ -45,6 +51,20 @@ app:
         signal-type: pm25
         from: "2026-09-30T00:00:00Z"
         to: "2026-10-13T00:00:00Z" # exclusive
+  explanation: # CG-135: AI explanation of each new event (Groq free plan)
+    enabled: ${AI_EXPLANATION_ENABLED:true}
+    api-key: ${GROQ_API_KEY:} # blank: every explanation is stored as FAILED "not configured", events unaffected
+    model: ${GROQ_MODEL:openai/gpt-oss-120b} # must support strict json_schema output
+    base-url: https://api.groq.com/openai/v1
+    timeout: 20s
+    lookback: 6h # window for the stale/partial-data check and the readings sent to the AI
+    expected-interval: 60m # hourly PM2.5 feed
+    stale-after: 2h
+    max-evidence-readings: 12
+    retry: # CG-152: FAILED explanations are retried while the event is still NEW
+      interval: ${AI_EXPLANATION_RETRY_INTERVAL:PT5M} # ISO-8601 (also read by @Scheduled)
+      batch-size: ${AI_EXPLANATION_RETRY_BATCH_SIZE:5}
+      max-attempts: ${AI_EXPLANATION_RETRY_MAX_ATTEMPTS:3} # total tries per event, first try included
   seed:
     admin-username: ${ADMIN_SEED_USERNAME:#{null}}
     admin-password: ${ADMIN_SEED_PASSWORD:#{null}}
@@ -68,13 +88,18 @@ ingestion:
   scheduling:
     enabled: ${INGESTION_SCHEDULING_ENABLED:true}
     fixed-delay-ms: ${INGESTION_SCHEDULING_FIXED_DELAY_MS:3600000}
+  sources:
+    # hosts a data source url may point at; comma-separated in the env var (CG-58, blocks SSRF)
+    allowed-hosts: ${INGESTION_ALLOWED_HOSTS:api-open.data.gov.sg}
   http:
     connect-timeout: ${INGESTION_HTTP_CONNECT_TIMEOUT:PT5S} # How long to wait while trying to establish a connection to the AQI server before giving up.
     read-timeout: ${INGESTION_HTTP_READ_TIMEOUT:PT10S} # Once connected, how long to wait for the server to actually send back data before giving up.
     max-attempts: ${INGESTION_HTTP_MAX_ATTEMPTS:3} # How many times FetchClient will attempt the whole fetch if it fails, before giving up for this cycle.
     initial-backoff: ${INGESTION_HTTP_INITIAL_BACKOFF:PT2S} # How long to wait before retrying after a failed attempt.
   backfill:
-    delay-between-days: ${INGESTION_BACKFILL_DELAY:PT2S}   # pause between days; data.gov.sg rate-limits rapid requests
+    delay-between-days: ${INGESTION_BACKFILL_DELAY:PT2S} # pause between days; data.gov.sg rate-limits rapid requests
+    max-days: ${INGESTION_BACKFILL_MAX_DAYS:31} # largest range per request: bounds how long one call runs and how many data.gov.sg calls it makes
+    max-pages-per-day: ${INGESTION_BACKFILL_MAX_PAGES:20}
 
 pm:
   url: ${PM_SOURCE_URL:https://api-open.data.gov.sg/v2/real-time/api/pm25}

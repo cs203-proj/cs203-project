@@ -8,14 +8,18 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.cs203.healthwatch.common.exception.BadRequestException;
+import com.cs203.healthwatch.common.exception.ConflictException;
 import com.cs203.healthwatch.dto.BackfillResponse;
 import com.cs203.healthwatch.ingestion.FetchClient;
+import com.cs203.healthwatch.ingestion.config.BackfillProperties;
 import com.cs203.healthwatch.ingestion.pm.PmSourceProperties.Region;
 import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
+import com.cs203.healthwatch.ingestion.sources.DataSource;
 import com.cs203.healthwatch.ingestion.sources.DataSourceRegistry;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,6 +49,10 @@ class PmBackfillServiceTest {
 
     private static final String URL = "https://example.test/pm25";
     private static final UUID SOURCE_ID = UUID.fromString("5f1e2d3c-4b5a-4968-8776-655443322110");
+    private static final int MAX_DAYS = 31;
+    private static final int MAX_PAGES_PER_DAY = 20;
+    /** No pause between days, so the tests run instantly. */
+    private static final BackfillProperties PROPS = new BackfillProperties(Duration.ZERO, MAX_DAYS, MAX_PAGES_PER_DAY);
     /** "Today" for every test: 15 Oct 2026, 12:00 SGT. */
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-10-15T04:00:00Z"), ZoneId.of("Asia/Singapore"));
 
@@ -53,15 +61,27 @@ class PmBackfillServiceTest {
     @Mock private DataSourceRegistry registry;
 
     private PmBackfillService backfill;
+    private DataSource sourceRow;
 
     @BeforeEach
     void setUp() {
+        backfill = backfillWith(CLOCK);
+        sourceRow = new DataSource("datagovsg_pm25", "air_quality");
+        sourceRow.setId(SOURCE_ID);
+        lenient().when(registry.current("datagovsg_pm25", "air_quality")).thenReturn(sourceRow);
+    }
+
+    private PmBackfillService backfillWith(Clock clock) {
+        return backfillWith(clock, PROPS);
+    }
+
+    private PmBackfillService backfillWith(Clock clock, BackfillProperties backfillProps) {
         ObjectMapper mapper = new ObjectMapper();
         PmSourceProperties props = new PmSourceProperties("datagovsg_pm25", URL, "air_quality",
                 List.of(new Region("central"), new Region("west")));
-        PmIngestionService ingestion =
-                new PmIngestionService(fetchClient, new PmParser(), repo, mapper, props, registry);
-        backfill = new PmBackfillService(fetchClient, mapper, props, ingestion, CLOCK, Duration.ZERO);
+        PmParser parser = new PmParser();
+        PmIngestionService ingestion = new PmIngestionService(fetchClient, parser, repo, mapper, props, registry, clock);
+        return new PmBackfillService(fetchClient, mapper, ingestion, parser, backfillProps, clock);
     }
 
     /** One page for a day: two hourly items with central and west values, optionally pointing to a next page. */
@@ -125,7 +145,7 @@ class PmBackfillServiceTest {
 
         BackfillResponse result = backfill.backfill(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-01"));
 
-        assertThat(result.pages()).isEqualTo(PmBackfillService.MAX_PAGES_PER_DAY);
+        assertThat(result.pages()).isEqualTo(MAX_PAGES_PER_DAY);
         assertThat(result.failedDays()).containsExactly(LocalDate.parse("2026-09-01"));
     }
 
@@ -155,7 +175,7 @@ class PmBackfillServiceTest {
     }
 
     @Test
-    void unusableResponseForADay_isStoredOnceAsMalformed() {
+    void unusableResponseForADay_isStoredOnceAsMalformed_andTheDayIsReportedAsFailed() {
         sourceResolves();
         dayReturns("2026-09-01", """
                 {"code":1,"errorMsg":"no data for date"}
@@ -165,6 +185,7 @@ class PmBackfillServiceTest {
 
         assertThat(result.saved()).isEqualTo(1);
         assertThat(result.malformed()).isEqualTo(1);
+        assertThat(result.failedDays()).containsExactly(LocalDate.parse("2026-09-01"));
         verify(repo, times(1)).save(any(Reading.class));
     }
 
@@ -211,13 +232,26 @@ class PmBackfillServiceTest {
     }
 
     @Test
+    void todayIsTheSingaporeDate_evenWhenTheAppClockIsUtc() {
+        // The shared Clock bean is UTC. At 04:00 SGT on 15 Oct it is still 14 Oct in UTC,
+        // but 15 Oct is already "today" for data.gov.sg.
+        Clock utcClock = Clock.fixed(Instant.parse("2026-10-14T20:00:00Z"), ZoneId.of("UTC"));
+        PmBackfillService utcBackfill = backfillWith(utcClock);
+        sourceResolves();
+        dayReturns("2026-10-15", page("2026-10-15", 0, null));
+
+        assertThat(utcBackfill.backfill(LocalDate.parse("2026-10-15"), LocalDate.parse("2026-10-15")).failedDays())
+                .isEmpty();
+    }
+
+    @Test
     void rangeLongerThanTheMaximumIsRejected() {
         LocalDate from = LocalDate.parse("2026-08-01");
-        LocalDate to = from.plusDays(PmBackfillService.MAX_DAYS); // MAX_DAYS + 1 days inclusive
+        LocalDate to = from.plusDays(MAX_DAYS); // MAX_DAYS + 1 days inclusive
 
         assertThatThrownBy(() -> backfill.backfill(from, to))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("At most " + PmBackfillService.MAX_DAYS + " days");
+                .hasMessageContaining("At most " + MAX_DAYS + " days");
         verify(fetchClient, never()).fetch(anyString());
     }
 
@@ -229,9 +263,33 @@ class PmBackfillServiceTest {
         sourceResolves();
         LocalDate from = LocalDate.parse("2026-08-01");
 
-        BackfillResponse result = backfill.backfill(from, from.plusDays(PmBackfillService.MAX_DAYS - 1));
+        BackfillResponse result = backfill.backfill(from, from.plusDays(MAX_DAYS - 1));
 
-        assertThat(result.days()).isEqualTo(PmBackfillService.MAX_DAYS);
-        verify(fetchClient, times(PmBackfillService.MAX_DAYS)).fetch(anyString());
+        assertThat(result.days()).isEqualTo(MAX_DAYS);
+        verify(fetchClient, times(MAX_DAYS)).fetch(anyString());
+    }
+
+    // ------------------------------------------------------------------ CG-58 enabled / url
+
+    @Test
+    void disabledSource_isRejectedWithConflict_andNothingIsFetched() {
+        sourceRow.setEnabled(false);
+
+        assertThatThrownBy(() -> backfill.backfill(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-01")))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("disabled");
+        verifyNoInteractions(fetchClient, repo);
+    }
+
+    @Test
+    void urlStoredOnTheSource_isUsedForEveryDay() {
+        sourceRow.setUrl("https://mirror.example.test/pm25");
+        sourceResolves();
+        when(fetchClient.fetch("https://mirror.example.test/pm25?date=2026-09-01"))
+                .thenReturn(page("2026-09-01", 0, null));
+
+        assertThat(backfill.backfill(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-01")).failedDays())
+                .isEmpty();
+        verify(fetchClient, never()).fetch(URL + "?date=2026-09-01");
     }
 }

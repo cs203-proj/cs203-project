@@ -40,9 +40,11 @@ public class SecurityConfig {
             })
             )
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/auth/login").permitAll()
+                // CG-5/CG-8: public endpoints (register, sign out, consent notice shown before sign-up)
+                .requestMatchers("/auth/login", "/auth/register", "/auth/logout", "/consent").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                .requestMatchers("/events/**", "/baselines/**", "/audit-log/**", "/demo/**", "/warnings/**", "/backfill/**").hasRole("ADMIN")
+                .requestMatchers("/events/**", "/baselines/**", "/audit-log/**", "/demo/**", "/warnings/**", "/backfill/**", "/data-sources/**").hasRole("ADMIN")
+                .requestMatchers("/me", "/me/**").authenticated() // any logged-in user; no token gives 401
                 .anyRequest().permitAll()
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

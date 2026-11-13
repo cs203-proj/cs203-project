@@ -7,6 +7,8 @@ import com.cs203.healthwatch.detection.ReplayResult.Outcome;
 import com.cs203.healthwatch.events.DetectedEvent;
 import com.cs203.healthwatch.events.EventRepository;
 import com.cs203.healthwatch.events.EventStatus;
+import com.cs203.healthwatch.explanation.EventExplanationService;
+import com.cs203.healthwatch.ingestion.readings.Reading;
 import com.cs203.healthwatch.ingestion.readings.ReadingRepository;
 import java.time.Clock;
 import java.time.Duration;
@@ -14,7 +16,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +38,7 @@ public class DetectionOrchestrator {
     private final BaselineRepository baselineRepository;
     private final DetectionProperties config;
     private final Clock clock;
+    private final EventExplanationService explanationService;
 
     /**
      * Live detection, run after every ingestion pull: the latest real readings in public.readings, compared with
@@ -59,9 +64,13 @@ public class DetectionOrchestrator {
         Collections.reverse(recent);
 
         Instant now = clock.instant();
-        return DeviationDetector.detect(
+        Optional<DetectedEvent> created = DeviationDetector.detect(
                         baseline, recent, config.zThreshold(), config.consecutiveReadings(), config.maxGap())
                 .flatMap(d -> saveIfNoneOpen(d, false, now, countInWindow(recent, d.timestamp())));
+
+        // CG-135: explain the new event. The event is already saved, so nothing here can undo or block it.
+        created.ifPresent(event -> explain(event, baseline.get(), recent));
+        return created;
     }
 
     /**
@@ -99,11 +108,28 @@ public class DetectionOrchestrator {
         Deviation found = deviation.get();
         int inWindow = countInWindow(readings, found.timestamp());
         return saveIfNoneOpen(found, true, found.timestamp(), inWindow)
+                .map(event -> {
+                    // CG-135: explain using the replay readings up to the detection point, as a live run would have
+                    explain(event, baseline.get(), readings.stream()
+                            .filter(r -> !r.observedAt().isAfter(found.timestamp()))
+                            .toList());
+                    return event;
+                })
                 .map(event -> new ReplayResult(Outcome.CREATED, "Replay event created",
                         readings.size(), baseline.get(), event))
                 .orElseGet(() -> new ReplayResult(Outcome.ALREADY_OPEN,
                         "A replay event is already open for this region and signal; dismiss it to replay again",
                         readings.size(), baseline.get(), null));
+    }
+
+    /** Runs the AI explanation for a new event. Any failure is logged and swallowed: detection must carry on. */
+    private void explain(DetectedEvent event, BaselineSnapshot baseline, List<ReadingSnapshot> readings) {
+        try {
+            explanationService.explainNewEvent(event, baseline, readings, config.zThreshold(),
+                    config.consecutiveReadings());
+        } catch (Exception e) {
+            log.error("Explanation step failed for event {}; event stays NEW: {}", event.getId(), e.getMessage(), e);
+        }
     }
 
     private Optional<BaselineSnapshot> usableBaseline(String region, String signalType) {
@@ -154,10 +180,10 @@ public class DetectionOrchestrator {
         event.setStatus(EventStatus.NEW);
         event.setReplay(replay);
 
-        // source agreement is null until a second source exists (CG-136); the scorer leaves it out
+        // null when no other region is comparable; the scorer then leaves the input out
         ConfidenceInputs inputs = new ConfidenceInputs(
                 Math.max(0, Duration.between(d.timestamp(), scoredAt).toSeconds()),
-                readingCount, d.deviationSize(), null);
+                readingCount, d.deviationSize(), sourceAgreement(d));
         ConfidenceResult confidence = ConfidenceScorer.score(inputs);
         event.applyConfidence(inputs, confidence);
 
@@ -167,6 +193,36 @@ public class DetectionOrchestrator {
                 replay ? "replay" : "live", d.region(), d.signalType(), d.deviationSize(),
                 confidence.score(), confidence.level());
         return Optional.of(saved);
+    }
+
+    /**
+     * Share of the other regions that also show a spike when this event was detected (CG-16 source agreement).
+     * All regions share one feed, so a "source" is a region. Never blocks event creation: any failure gives null,
+     * which the scorer treats as "no agreement information".
+     */
+    private Double sourceAgreement(Deviation d) {
+        try {
+            Instant end = d.timestamp();
+            List<Reading> others = readingRepository.findOtherRegionsBetween(d.region(), config.sourceType(),
+                    end.minus(config.maxGap()).atOffset(ZoneOffset.UTC), end.atOffset(ZoneOffset.UTC));
+            if (others.isEmpty()) {
+                return null;
+            }
+            List<ReadingSnapshot> snapshots = others.stream()
+                    .map(r -> new ReadingSnapshot(r.getRegion(), d.signalType(), r.getValue(),
+                            r.getObservedAt().toInstant()))
+                    .toList();
+            Map<String, BaselineSnapshot> baselines = new HashMap<>();
+            for (String region : snapshots.stream().map(ReadingSnapshot::region).distinct().toList()) {
+                baselineRepository.latestBaseline(region, d.signalType(), config.sourceType())
+                        .ifPresent(b -> baselines.put(region, b));
+            }
+            List<ReadingSnapshot> latest = RegionReadings.newestPerRegionWithin(snapshots, end, config.maxGap());
+            return SourceAgreement.compute(latest, baselines, config.zThreshold());
+        } catch (Exception e) {
+            log.warn("Could not compute source agreement for {}/{}: {}", d.region(), d.signalType(), e.getMessage());
+            return null;
+        }
     }
 
     /**

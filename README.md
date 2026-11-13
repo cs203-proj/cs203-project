@@ -7,7 +7,7 @@ Public health surveillance and early warning system — HealthWatch.
 Install these once per machine:
 
 - **Docker Desktop** — runs Postgres for local dev. https://www.docker.com/products/docker-desktop/
-- **JDK 21+** — required to build/run the backend. (Maven itself is *not* required — the project uses the Maven Wrapper, which downloads Maven automatically.)
+- **JDK 21 required (newer JDKs break Lombok)** — to build/run the backend. (Maven itself is *not* required — the project uses the Maven Wrapper, which downloads Maven automatically.)
 
 You do **not** need to install Postgres or Maven yourself.
 
@@ -43,10 +43,9 @@ That's it — there's no separate install step. The steps below (start DB, run b
 
 ## Notes
 
-- Visiting `http://localhost:8080/` directly will prompt for a username/password — that's Spring Security's default login (`user` / a random password printed in the backend's console log at startup). This goes away once real auth is added; it's not the app's actual login system yet.
+- Web app: `http://localhost:8080/` (see [Web UI](#web-ui-cg-4)). To create an admin locally, start the backend with `ADMIN_SEED_USERNAME` and `ADMIN_SEED_PASSWORD` set.
 - API docs (once endpoints exist): `http://localhost:8080/swagger-ui.html`.
 - To stop Postgres: `docker compose down` (add `-v` to also wipe the database data).
-- `frontend/` is not scaffolded yet.
 
 ## Events and audit trail
 
@@ -131,12 +130,129 @@ robust z-score (detection only fires above 3):
   never invented per event.
 - The confidence line is the event's confidence level (CG-16). Events scored before confidence existed say
   "Confidence: not yet assessed."
-- Per-audience drafts (vulnerable groups, healthcare workers) are Sprint 3.
+
+### Per-audience drafts and the AI line (CG-154)
+
+Confirming an event drafts one warning per audience, all `PENDING_REVIEW`, in the same transaction as the status
+change: `GENERAL_PUBLIC` (the text above, unchanged), `VULNERABLE` and `HEALTHCARE_WORKER`. The audience codes are the
+same as the profile's (CG-6).
+
+- All three share the event's severity and confidence. Each has its own fixed "What you should do" advice, based on the
+  MOH/NEA health advisory. The tables, the source and the severity mapping are in
+  [docs/warning-advice.md](docs/warning-advice.md).
+- Each draft gets its own `DRAFT_CREATED` audit entry and is its own row, so it is reviewed on its own in the queue.
+- At most one draft per event per audience. Events confirmed before CG-154 keep their single general-public draft
+  (`CONFIRMED` is final, so they are never re-drafted).
+
+Each draft can also get an AI-written "why this matters for this audience" line in `warnings.ai_line` (`aiLine` on
+`GET /events/{id}/warnings` and `GET /warnings`, and labelled "AI-generated" on `GET /me/warnings`):
+
+- Built from the event's CG-135 explanation (assessment and likely cause) plus the audience. The AI is never sent the
+  advice and is told never to give any. Strict JSON schema output, validated like CG-135.
+- Uses the same Groq key and model as AI explanations. Turn it off with `AI_LINE_ENABLED=false`; with no key, nothing
+  is attempted.
+- Runs in the background right after the confirm commits, so confirming never waits on or fails because of the AI. If
+  the explanation is missing or `FAILED`, the AI call fails, or the reply is blank or over 400 characters, the draft
+  stays without a line and the reason is logged.
+- Only written while the warning is still `PENDING_REVIEW` and has no line yet, so an admin always sees it before
+  approving. Recorded in the warning's audit trail as `AI_LINE_ADDED` by `system`.
+- One row is shared by everyone in the audience, so no user's profile or health conditions are ever sent to the AI.
+
+## Profile and account deletion (CG-6, CG-7)
+
+An end user has a profile that drives per-audience warnings (CG-154) and `GET /me/warnings` (CG-22).
+
+| Endpoint | What it does |
+|----------|--------------|
+| `GET /me/profile` | The caller's `region`, `audience` and `healthConditions`. Empty until first set. |
+| `PUT /me/profile` | Replaces the profile. Unknown codes give `400`; the message names the field and value. |
+| `DELETE /me` | Anonymises the caller's account (see below). `204` on success; admin accounts get `403`. |
+
+All `/me` routes need a bearer token (any role). The user is always the one in the token; there is no user id in any path or body. No token or an invalid token gives `401`. Admins can view and edit a profile but cannot delete their account through this endpoint.
+
+### Frozen codes (shared with CG-154 and CG-22)
+
+- `region`: `central`, `north`, `south`, `east`, `west` (lowercase, same as `pm.regions`).
+- `audience`: `GENERAL_PUBLIC`, `VULNERABLE`, `HEALTHCARE_WORKER` (uppercase, same as `warnings.audience`).
+- `healthConditions`: a list of codes from `HealthCondition.java`; never free text. Duplicates are ignored.
+- Case matters: `North` is rejected. Changing a code needs CG-6, CG-154 and CG-22 to agree.
+
+### Account deletion anonymises instead of hard-deleting
+
+`audit_log` is append-only (trigger in `V3`) and references `users` as the actor. Deleting the user row would either break that foreign key or force changes to audit history, so `DELETE /me` keeps the row and its id and removes the personal data:
+
+- `username` becomes `deleted-<random uuid>`, not derived from the old name, so the old name is free again.
+- `password_hash`, `region`, `audience` and all health conditions are cleared; `deleted_at` is set. All of this happens in one transaction.
+- No `audit_log` row is touched. Audit trails show the anonymised username for that actor.
+- The old credentials cannot log in, and tokens for the account stop working at once: `JwtAuthFilter` ignores deleted users, so any `/me` call, including `GET /me/warnings`, returns `401`.
+- Tokens identify the account by its id (`uid` claim), and `JwtAuthFilter` looks the account up by id, never by username. This matters because the old name is free again: a token issued to a deleted `alice` can never act as a new account that is also called `alice`. Tokens without a `uid` are rejected, so everyone logs in again once after this change is deployed.
+- Admin accounts cannot be deleted through this endpoint (`403`).
+- A database check (migration `V13`) makes it impossible to have `deleted_at` set while a password, region or audience remains.
+- `users` has no consent columns yet. Whoever adds them must also clear them in `ProfileService.deleteAccount`.
+- Any future query that lists users (for example by audience) should filter `deleted_at IS NULL`.
+
+## My warnings (CG-22, CG-23)
+
+`GET /me/warnings` is the end user's feed. Any valid token works; no token gives `401`. The user comes from the token.
+
+A warning is returned only if all of these hold:
+
+- its status is `APPROVED` (pending and suppressed warnings are never returned, including downgraded-then-suppressed ones);
+- its event's `region` equals the user's region and its `audience` equals the user's audience;
+- it was approved within `app.warnings.feed.active-window` (default `24h`, env `WARNING_ACTIVE_WINDOW`). Expiry (CG-31) is
+  descoped, so this window is what retires a warning.
+
+Order: most severe first, then newest approval first. A user with no region or no audience gets `200`, an empty list and a
+message to complete their profile.
+
+| Field | Source |
+| --- | --- |
+| `text` | `warnings.edited_text` if an admin edited the warning, otherwise the original draft `warning_text` |
+| `confidence.level` / `confidence.meaning` | The event's CG-16 band (`LOW` / `MEDIUM` / `HIGH`) and a fixed plain-language sentence for it. `level` is null and the meaning says "not been assessed" for events scored before CG-16 |
+| `whyThisApplies` | Built in code from the user's profile, e.g. "You are in the east region and receive advice for vulnerable groups." Health conditions are named only for the vulnerable audience, and only the ones this user entered |
+| `aiLine` | `warnings.ai_line` (CG-154), always `{"label": "AI-generated"}`; null if there is none |
+| `dataQualityNote` | The CG-135 note, only when that explanation's `dataComplete` is false (stale or partial data); otherwise null |
+
+Migration `V12` adds `warnings.approved_at`, `warnings.edited_text` and `warnings.ai_line`. The approve and edit actions
+(CG-28) must set `approved_at` when status becomes `APPROVED` and write the admin's wording to `edited_text`, never to
+`warning_text`. CG-154 writes `ai_line`.
+
+## Data sources (CG-58)
+
+Admins manage the feeds that ingestion pulls from. All routes need an admin token (`401` without a token, `403` for non-admins).
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /data-sources?name=` | All sources sorted by name. `name` is an exact filter; no match gives `200 []`. |
+| `GET /data-sources/{id}` | One source; unknown id gives `404`. |
+| `POST /data-sources` | Registers a source, **disabled**. `201`; duplicate name `409`; bad url `400`. |
+| `PUT /data-sources/{id}` | Changes the feed url only. `null` falls back to the configured default (`pm.url`). |
+| `PATCH /data-sources/{id}/enabled` | Body `{"enabled": true}` or `false`. |
+
+- Ingestion and backfill read the row on every pull, so changes apply from the next pull. A disabled source is skipped by ingestion, and backfill for it returns `409`. Its readings are kept.
+- There is no delete (`405`): readings reference their source, so a source is disabled instead.
+- Name and type cannot change: ingestion finds its row by name, and detection groups readings by type. Registering a name that the code ingests under a different type gives `400`.
+- `ingestionAvailable` is `true` when this build has ingestion code for the source. A source registered without it is stored but never pulled.
+- **Url rules (SSRF):** https only, default port, no user info, and the host must be in `ingestion.sources.allowed-hosts` (env `INGESTION_ALLOWED_HOSTS`, comma-separated, default `api-open.data.gov.sg`). Redirects are not followed. The url is never logged, since it may carry an API key.
+- **Known limitation:** the host is checked by name, not by the IP it resolves to, so DNS rebinding on an allowed host is not blocked. Only add hosts you trust.
+- "Last successful pull" per source was descoped.
+
+## Web UI (CG-4)
+
+Plain HTML, CSS and JavaScript in `backend/src/main/resources/static/`, served by Spring Boot at `/`. Same origin as the API, so no CORS and no separate deploy: it ships with the backend.
+
+- **Login** routes by role: admins go to *Review warnings*, users to *My warnings*. Admin pages redirect non-admins; the server still enforces roles.
+- **Admin:** review queue (approve, edit, downgrade, suppress, with history), events (explanation, confidence, start review, confirm), data sources (register, edit url, enable/disable, backfill).
+- **User:** sign up with consent, settings (region, audience, health conditions only for vulnerable, delete account), my warnings.
+- Admins cannot sign up; admin accounts come only from the seeder.
+- The token is kept in `localStorage`, so it is shared across tabs; it expires after 30 minutes (server-enforced). Logout clears it.
+- Third-party code: flatpickr (date picker) in `static/vendor/`, MIT licence included.
+- Editing pages without restarting (from `backend/`): `./mvnw spring-boot:run -Dspring-boot.run.arguments=--spring.web.resources.static-locations=file:src/main/resources/static/`, then refresh the browser.
 
 ## Project structure
 
 - `backend/` — Spring Boot 3.3 (Java 21) API: web, JPA, Postgres, Flyway, Spring Security, JWT (jjwt), OpenAPI/Swagger.
-- `frontend/` — not yet started.
+- `backend/src/main/resources/static/` — web UI (CG-4), served by the backend.
 - `docker-compose.yml` — local Postgres for dev.
 
 ## Deployment

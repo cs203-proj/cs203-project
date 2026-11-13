@@ -39,10 +39,10 @@ class WarningAuditEndpointTest {
        String suffix = UUID.randomUUID().toString().substring(0, 8);
     String adminName = "audit-admin-" + suffix;
     String viewerName = "audit-viewer-" + suffix;
-    userRepository.save(new User(adminName, "hash", "admin"));
-    userRepository.save(new User(viewerName, "hash", "viewer"));
-    adminToken = jwtService.generateToken(adminName, "admin");
-    viewerToken = jwtService.generateToken(viewerName, "viewer");
+    User admin = userRepository.save(new User(adminName, "hash", "admin"));
+    User viewer = userRepository.save(new User(viewerName, "hash", "viewer"));
+    adminToken = jwtService.generateToken(admin.getId(), adminName, "admin");
+    viewerToken = jwtService.generateToken(viewer.getId(), viewerName, "viewer");
     }
 
     private void insertEntry(UUID warningId, String action, Instant at) {

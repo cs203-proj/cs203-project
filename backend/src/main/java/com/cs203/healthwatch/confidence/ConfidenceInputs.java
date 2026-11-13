@@ -7,7 +7,7 @@ package com.cs203.healthwatch.confidence;
  * @param stalenessSeconds seconds between the newest reading behind the event and the moment of scoring
  * @param readingCount     valid readings inside the scoring window (see {@link ConfidenceScorer#WINDOW})
  * @param deviationSize    the event's robust z-score (same value as the event's deviation)
- * @param sourceAgreement  share of sources that agree with the flag, 0..1; {@code null} while only one source exists
- *                         (until CG-136 lands)
+ * @param sourceAgreement  share of the other regions that also show a spike, 0..1 (see {@code SourceAgreement});
+ *                         {@code null} when no other region is comparable
  */
 public record ConfidenceInputs(long stalenessSeconds, int readingCount, double deviationSize, Double sourceAgreement) {}

@@ -18,6 +18,10 @@ public class PmParser {
     // set region as "ALL" if malformed json obtained as a whole (so all regions are malformed)
     public static final String ALL_REGIONS = "ALL"; 
 
+    // Readings outside this range are physically implausible for PM2.5 (µg/m³) and are flagged malformed.
+    static final double MIN_VALUE = 0;
+    static final double MAX_VALUE = 1000;
+
     public List<Reading> parseAll(JsonNode root, String region, UUID sourceId) {
         List<Reading> out = new ArrayList<>();
 
@@ -35,31 +39,45 @@ public class PmParser {
     }
 
     public Reading parse(JsonNode item, String region, UUID sourceId) {
-        Reading r = new Reading();
-
+        OffsetDateTime observedAt;
         try {
             JsonNode ts = item.path("timestamp");
-            if (ts.isMissingNode() || ts.isNull()) { 
-                return malformed(item, region, sourceId); 
-            }
-
-            JsonNode v = item.path("readings").path("pm25_one_hourly").path(region);
-            if (!v.isNumber() || v.asDouble() < 0 || v.asDouble() > 1000) { 
+            if (ts.isMissingNode() || ts.isNull()) {
                 return malformed(item, region, sourceId);
             }
-
-            r.setSourceId(sourceId);
-            r.setRegion(region);
-            r.setRawPayload(item.toString());
-            r.setObservedAt(OffsetDateTime.parse(ts.asText()));
-            r.setValue(v.asDouble());
-            r.setMalformed(false);
-
+            observedAt = OffsetDateTime.parse(ts.asText());
         } catch (DateTimeParseException e) {
             return malformed(item, region, sourceId);
         }
 
+        JsonNode v = item.path("readings").path("pm25_one_hourly").path(region);
+        if (!v.isNumber() || v.asDouble() < MIN_VALUE || v.asDouble() > MAX_VALUE) {
+            Reading bad = malformed(item, region, sourceId);
+            bad.setObservedAt(observedAt);
+            return bad;
+        }
+
+        Reading r = new Reading();
+        r.setSourceId(sourceId);
+        r.setRegion(region);
+        r.setRawPayload(item.toString());
+        r.setObservedAt(observedAt);
+        r.setValue(v.asDouble());
+        r.setMalformed(false);
         return r;
+    }
+
+    /** Region names the feed itself reports, for the log message when a configured region is missing. */
+    public List<String> regionsInFeed(JsonNode root) {
+        List<String> names = new ArrayList<>();
+        for (JsonNode item : root.path("data").path("items")) {
+            item.path("readings").path("pm25_one_hourly").fieldNames().forEachRemaining(name -> {
+                if (!names.contains(name)) {
+                    names.add(name);
+                }
+            });
+        }
+        return names;
     }
 
     public boolean isValidResponse(JsonNode root) {

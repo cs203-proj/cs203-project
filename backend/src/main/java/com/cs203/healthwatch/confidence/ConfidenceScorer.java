@@ -46,7 +46,7 @@ public final class ConfidenceScorer {
             weighted += WEIGHT_AGREEMENT * clamp01(in.sourceAgreement());
             totalWeight += WEIGHT_AGREEMENT;
         }
-        // an input that is not available (single source) is left out and the other weights rescaled to sum to 1
+        // an input that is not available (no comparable region) is left out and the other weights rescaled to sum to 1
 
         double score = round4(clamp01(weighted / totalWeight));
         return new ConfidenceResult(score, levelFor(score), FORMULA_VERSION);
