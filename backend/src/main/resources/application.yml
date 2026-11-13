@@ -40,7 +40,7 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   detection:
-      region: ${PM_SOURCE_REGION:central} # region live detection checks
+      regions: ${PM_SOURCE_REGIONS:central,north,south,east,west} # comma-separated regions checked after each ingestion
       signal-type: pm25 # what is measured: used to find the baseline and to label events
       source-type: ${PM_SOURCE_TYPE:air_quality} # data_sources.type of the ingested feed, used to find live readings
       z-threshold: 3.0

@@ -71,8 +71,9 @@ here means a **region**. Agreement says whether a spike in the event's region al
 
 **How to read it:** agreement measures how *widespread* a spike is, not whether the reading is *correct*. A genuine
 local spike in one region has low agreement without being wrong, which is why this input has the smallest weight (0.15).
-Also, detection currently runs only for `app.detection.region` (central), so for now agreement means "do the other four
-regions also show it". If computing agreement fails, the event is still created, with agreement `NULL`.
+Live detection runs for every region in `app.detection.regions` (all five by default). For each event, agreement asks
+whether the other regions also show a spike. If computing agreement fails, the event is still created, with agreement
+`NULL`.
 
 ## MAD zero-guard (CG-137)
 
